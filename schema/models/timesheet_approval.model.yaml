@@ -1,0 +1,88 @@
+# =============================================================================
+# Domain: timesheet
+# Entity: TimesheetApproval
+# Description: Approval cycle for a timesheet period (per employee/month).
+#              Reads employee.Employee via logical FKs (cross-module — no DB
+#              constraint). Carries an extensible json `data` payload.
+# =============================================================================
+
+models:
+  - name: TimesheetApproval
+    collection: timesheet_approvals
+    description: "Approval cycle for a timesheet period (per employee/month)."
+
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique approval id"
+
+      company_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Org owner # logical FK organization.Company.id"
+
+      employee_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Whose timesheet is being approved # logical FK employee.Employee.id"
+
+      approver_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "Who approved/rejected it # logical FK employee.Employee.id"
+
+      year:
+        type: integer
+        attributes: ["@required"]
+        description: "Calendar year of the period"
+
+      month:
+        type: integer
+        attributes: ["@required"]
+        description: "Calendar month 1-12"
+
+      remark:
+        type: string?
+        attributes: ["@length(max=255)"]
+        description: "Approver note"
+
+      billable_time:
+        type: decimal?
+        attributes: ["@precision(18,2)"]
+        description: "Approved billable hours"
+
+      billable_cost:
+        type: decimal?
+        attributes: ["@precision(12,2)"]
+        description: "Approved cost"
+
+      status:
+        type: TimesheetApprovalStatus
+        attributes: ["@required", "@default(pending)"]
+        description: "pending / approved / rejected"
+
+      data:
+        type: json?
+        description: "Extensible payload"
+
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+
+    indexes:
+      - type: index
+        fields: [company_id, employee_id, year, month]
+
+enums:
+  - name: TimesheetApprovalStatus
+    description: "Timesheet approval state"
+    variants:
+      - name: pending
+        default: true
+        description: "Awaiting decision"
+      - name: approved
+        description: "Approved"
+      - name: rejected
+        description: "Rejected"

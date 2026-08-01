@@ -1,0 +1,92 @@
+# =============================================================================
+# Domain: timesheet
+# Entity: Timesheet
+# Description: A logged time entry (work or overtime) against a project/task.
+#              Reads employee.Employee, project.Project, project.Task via
+#              logical FKs (cross-module — no DB constraint).
+# =============================================================================
+
+models:
+  - name: Timesheet
+    collection: timesheets
+    description: "A logged time entry (work or overtime) against a project/task."
+
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+        description: "Unique timesheet id"
+
+      company_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Org owner # logical FK organization.Company.id"
+
+      employee_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "Who logged the time # logical FK employee.Employee.id"
+
+      project_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "Project the time was logged against # logical FK project.Project.id"
+
+      task_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "Task the time was logged against # logical FK project.Task.id"
+
+      year:
+        type: integer
+        attributes: ["@required"]
+        description: "Calendar year of the entry"
+
+      month:
+        type: integer
+        attributes: ["@required"]
+        description: "Calendar month 1-12"
+
+      date:
+        type: date
+        attributes: ["@required"]
+        description: "Date of the entry"
+
+      remark:
+        type: string?
+        attributes: ["@length(max=255)"]
+        description: "Free-text note"
+
+      time_start:
+        type: datetime?
+        description: "Start of the logged period"
+
+      time_end:
+        type: datetime?
+        description: "End of the logged period"
+
+      entry_type:
+        type: TimesheetType
+        attributes: ["@required", "@default(work)"]
+        description: "work / overtime (renamed from `type` — the codegen's repo/exports generators do not escape the `type` keyword)"
+
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: "Audit metadata"
+
+    indexes:
+      - type: index
+        fields: [company_id, employee_id, date]
+      - type: index
+        fields: [project_id]
+
+enums:
+  - name: TimesheetType
+    description: "Timesheet category"
+    variants:
+      - name: work
+        default: true
+        description: "Regular work hours"
+      - name: overtime
+        description: "Overtime hours"
