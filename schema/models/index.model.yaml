@@ -13,7 +13,7 @@ module: timesheet
 version: 2
 schema: timesheet
 
-# ADR-0014 company fence (Wave 1 P0 sweep, 2026-08-16): timesheet lines and their approvals are company-private (pillar-hrms H-6).
+# ADR-0014 company fence (Wave 1 P0 sweep, 2026-08-16): timesheet lines and their approvals are company-private (pillar-people H-6).
 company_fence: strict
 description: "timesheet domain module"
 

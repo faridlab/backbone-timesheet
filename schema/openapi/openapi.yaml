@@ -1011,6 +1011,14 @@ components:
           type: string
         status:
           type: string
+        approval_request_id:
+          nullable: true
+          type: string
+          format: uuid
+        submitted_at:
+          nullable: true
+          type: string
+          format: date-time
         data:
           nullable: true
           type: object
@@ -1067,6 +1075,14 @@ components:
           type: string
         status:
           type: string
+        approval_request_id:
+          nullable: true
+          type: string
+          format: uuid
+        submitted_at:
+          nullable: true
+          type: string
+          format: date-time
         data:
           nullable: true
           type: object
@@ -1110,6 +1126,14 @@ components:
           type: string
         status:
           type: string
+        approval_request_id:
+          nullable: true
+          type: string
+          format: uuid
+        submitted_at:
+          nullable: true
+          type: string
+          format: date-time
         data:
           nullable: true
           type: object
@@ -1146,6 +1170,14 @@ components:
           type: string
         status:
           type: string
+        approval_request_id:
+          nullable: true
+          type: string
+          format: uuid
+        submitted_at:
+          nullable: true
+          type: string
+          format: date-time
         data:
           nullable: true
           type: object

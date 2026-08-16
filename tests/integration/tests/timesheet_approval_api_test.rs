@@ -33,6 +33,8 @@ impl TestDataGenerator for TimesheetApprovalTestData {
             "billable_time": null,
             "billable_cost": null,
             "status": "pending",
+            "approval_request_id": null,
+            "submitted_at": now,
             "data": null,
             "metadata": json!({}),
         })
@@ -51,6 +53,8 @@ impl TestDataGenerator for TimesheetApprovalTestData {
             "billable_time": null,
             "billable_cost": null,
             "status": "pending",
+            "approval_request_id": null,
+            "submitted_at": now,
             "data": null,
             "metadata": json!({}),
         })

@@ -69,7 +69,7 @@ pub struct Timesheet {
 impl Timesheet {
     /// Create a builder for Timesheet
     pub fn builder() -> TimesheetBuilder {
-        TimesheetBuilder::default()
+        <TimesheetBuilder as Default>::default()
     }
 
     /// Create a new Timesheet with required fields
@@ -394,7 +394,7 @@ impl TimesheetBuilder {
             remark: self.remark,
             time_start: self.time_start,
             time_end: self.time_end,
-            entry_type: self.entry_type.unwrap_or(TimesheetType::default()),
+            entry_type: self.entry_type.unwrap_or_default(),
             metadata: AuditMetadata::default(),
         })
     }

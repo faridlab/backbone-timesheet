@@ -49,12 +49,13 @@ pub struct TimesheetApprovalFilter {
     pub approver_id: Option<Uuid>,
     pub remark: Option<String>,
     pub status: Option<TimesheetApprovalStatus>,
+    pub approval_request_id: Option<Uuid>,
 }
 
 impl TimesheetApprovalFilter {
     /// Check if any filter is set
     pub fn has_filters(&self) -> bool {
-        self.company_id.is_some() || self.employee_id.is_some() || self.approver_id.is_some() || self.remark.is_some() || self.status.is_some()
+        self.company_id.is_some() || self.employee_id.is_some() || self.approver_id.is_some() || self.remark.is_some() || self.status.is_some() || self.approval_request_id.is_some()
     }
 }
 

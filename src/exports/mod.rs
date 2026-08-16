@@ -8,7 +8,7 @@
 //! ## Usage from other modules
 //!
 //! ```text
-//! use timesheet::exports::{TimesheetDto, TimesheetQueryService};
+//! use timesheet::exports::{TimesheetDto};
 //! ```
 
 mod types;
@@ -33,9 +33,6 @@ pub use events::*;
 /// - `TimesheetApprovalDto` - Data transfer object for TimesheetApproval
 /// - `TimesheetApprovalSummary` - Summary view of TimesheetApproval
 /// - `TimesheetApprovalId` - Type-safe ID wrapper
-///
-/// ## Public Services
-/// - `TimesheetQueryService` - Read-only queries
 ///
 /// ## Public Events
 /// - `TimesheetCreatedEvent` - Published when Timesheet is created

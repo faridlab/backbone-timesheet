@@ -60,6 +60,8 @@ pub struct TimesheetApproval {
     pub billable_time: Option<Decimal>,
     pub billable_cost: Option<Decimal>,
     pub status: TimesheetApprovalStatus,
+    pub approval_request_id: Option<Uuid>,
+    pub submitted_at: Option<DateTime<Utc>>,
     pub data: Option<serde_json::Value>,
     #[serde(default)]
     #[sqlx(json)]
@@ -69,7 +71,7 @@ pub struct TimesheetApproval {
 impl TimesheetApproval {
     /// Create a builder for TimesheetApproval
     pub fn builder() -> TimesheetApprovalBuilder {
-        TimesheetApprovalBuilder::default()
+        <TimesheetApprovalBuilder as Default>::default()
     }
 
     /// Create a new TimesheetApproval with required fields
@@ -85,6 +87,8 @@ impl TimesheetApproval {
             billable_time: None,
             billable_cost: None,
             status,
+            approval_request_id: None,
+            submitted_at: None,
             data: None,
             metadata: AuditMetadata::default(),
         }
@@ -174,6 +178,18 @@ impl TimesheetApproval {
         self
     }
 
+    /// Set the approval_request_id field (chainable)
+    pub fn with_approval_request_id(mut self, value: Uuid) -> Self {
+        self.approval_request_id = Some(value);
+        self
+    }
+
+    /// Set the submitted_at field (chainable)
+    pub fn with_submitted_at(mut self, value: DateTime<Utc>) -> Self {
+        self.submitted_at = Some(value);
+        self
+    }
+
     /// Set the data field (chainable)
     pub fn with_data(mut self, value: serde_json::Value) -> Self {
         self.data = Some(value);
@@ -214,6 +230,12 @@ impl TimesheetApproval {
                 }
                 "status" => {
                     if let Ok(v) = serde_json::from_value(value) { self.status = v; }
+                }
+                "approval_request_id" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.approval_request_id = v; }
+                }
+                "submitted_at" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.submitted_at = v; }
                 }
                 "data" => {
                     if let Ok(v) = serde_json::from_value(value) { self.data = v; }
@@ -275,6 +297,7 @@ impl backbone_orm::EntityRepoMeta for TimesheetApproval {
         m.insert("company_id".to_string(), "uuid".to_string());
         m.insert("employee_id".to_string(), "uuid".to_string());
         m.insert("approver_id".to_string(), "uuid".to_string());
+        m.insert("approval_request_id".to_string(), "uuid".to_string());
         m.insert("status".to_string(), "timesheet_approval_status".to_string());
         m
     }
@@ -301,6 +324,8 @@ pub struct TimesheetApprovalBuilder {
     billable_time: Option<Decimal>,
     billable_cost: Option<Decimal>,
     status: Option<TimesheetApprovalStatus>,
+    approval_request_id: Option<Uuid>,
+    submitted_at: Option<DateTime<Utc>>,
     data: Option<serde_json::Value>,
 }
 
@@ -359,6 +384,18 @@ impl TimesheetApprovalBuilder {
         self
     }
 
+    /// Set the approval_request_id field (optional)
+    pub fn approval_request_id(mut self, value: Uuid) -> Self {
+        self.approval_request_id = Some(value);
+        self
+    }
+
+    /// Set the submitted_at field (optional)
+    pub fn submitted_at(mut self, value: DateTime<Utc>) -> Self {
+        self.submitted_at = Some(value);
+        self
+    }
+
     /// Set the data field (optional)
     pub fn data(mut self, value: serde_json::Value) -> Self {
         self.data = Some(value);
@@ -384,7 +421,9 @@ impl TimesheetApprovalBuilder {
             remark: self.remark,
             billable_time: self.billable_time,
             billable_cost: self.billable_cost,
-            status: self.status.unwrap_or(TimesheetApprovalStatus::default()),
+            status: self.status.unwrap_or_default(),
+            approval_request_id: self.approval_request_id,
+            submitted_at: self.submitted_at,
             data: self.data,
             metadata: AuditMetadata::default(),
         })

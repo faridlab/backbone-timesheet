@@ -122,6 +122,8 @@ pub struct TimesheetApprovalDto {
     pub billable_time: Option<Decimal>,
     pub billable_cost: Option<Decimal>,
     pub status: TimesheetApprovalStatus,
+    pub approval_request_id: Option<Uuid>,
+    pub submitted_at: Option<DateTime<Utc>>,
     pub data: Option<serde_json::Value>,
     pub metadata: serde_json::Value,
 }

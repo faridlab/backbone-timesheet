@@ -53,6 +53,10 @@ pub struct CreateTimesheetApprovalDto {
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "billable_cost")]
     pub billable_cost: Option<Decimal>,
     pub status: TimesheetApprovalStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "approval_request_id")]
+    pub approval_request_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "submitted_at")]
+    pub submitted_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data: Option<serde_json::Value>,
 }
@@ -89,6 +93,10 @@ pub struct UpdateTimesheetApprovalDto {
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "billable_cost")]
     pub billable_cost: Option<Decimal>,
     pub status: TimesheetApprovalStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "approval_request_id")]
+    pub approval_request_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "submitted_at")]
+    pub submitted_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data: Option<serde_json::Value>,
 }
@@ -128,6 +136,10 @@ pub struct PatchTimesheetApprovalDto {
     pub billable_cost: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<TimesheetApprovalStatus>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "approval_request_id")]
+    pub approval_request_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "submitted_at")]
+    pub submitted_at: Option<DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<serde_json::Value>,
 }
@@ -135,7 +147,7 @@ pub struct PatchTimesheetApprovalDto {
 impl PatchTimesheetApprovalDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.employee_id.is_some() || self.approver_id.is_some() || self.year.is_some() || self.month.is_some() || self.remark.is_some() || self.billable_time.is_some() || self.billable_cost.is_some() || self.status.is_some() || self.data.is_some()
+        self.company_id.is_some() || self.employee_id.is_some() || self.approver_id.is_some() || self.year.is_some() || self.month.is_some() || self.remark.is_some() || self.billable_time.is_some() || self.billable_cost.is_some() || self.status.is_some() || self.approval_request_id.is_some() || self.submitted_at.is_some() || self.data.is_some()
     }
 }
 
@@ -166,6 +178,8 @@ pub struct TimesheetApprovalResponseDto {
     pub billable_time: Option<Decimal>,
     pub billable_cost: Option<Decimal>,
     pub status: TimesheetApprovalStatus,
+    pub approval_request_id: Option<Uuid>,
+    pub submitted_at: Option<DateTime<Utc>>,
     pub data: Option<serde_json::Value>,
     pub metadata: AuditMetadata,
 }
@@ -247,6 +261,8 @@ impl From<TimesheetApproval> for TimesheetApprovalResponseDto {
             billable_time: entity.billable_time,
             billable_cost: entity.billable_cost,
             status: entity.status,
+            approval_request_id: entity.approval_request_id,
+            submitted_at: entity.submitted_at,
             data: entity.data,
             metadata: entity.metadata,
         }
@@ -279,6 +295,8 @@ impl From<CreateTimesheetApprovalDto> for TimesheetApproval {
             billable_time: dto.billable_time,
             billable_cost: dto.billable_cost,
             status: dto.status,
+            approval_request_id: dto.approval_request_id,
+            submitted_at: dto.submitted_at,
             data: dto.data,
             metadata: AuditMetadata::default(),
         }
@@ -298,6 +316,8 @@ impl From<&TimesheetApproval> for TimesheetApprovalResponseDto {
             billable_time: entity.billable_time.clone(),
             billable_cost: entity.billable_cost.clone(),
             status: entity.status.clone(),
+            approval_request_id: entity.approval_request_id.clone(),
+            submitted_at: entity.submitted_at.clone(),
             data: entity.data.clone(),
             metadata: entity.metadata.clone(),
         }
@@ -321,6 +341,8 @@ impl backbone_core::ApplyUpdateDto<UpdateTimesheetApprovalDto> for TimesheetAppr
         self.billable_time = dto.billable_time;
         self.billable_cost = dto.billable_cost;
         self.status = dto.status;
+        self.approval_request_id = dto.approval_request_id;
+        self.submitted_at = dto.submitted_at;
         self.data = dto.data;
         Ok(self)
     }

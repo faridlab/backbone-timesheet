@@ -62,6 +62,15 @@ models:
         attributes: ["@required", "@default(pending)"]
         description: "pending / approved / rejected"
 
+      approval_request_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "Linked approvals.ApprovalRequest # logical FK, no DB constraint (Wave 1 P2 seam, mirrors timeoff's ApprovalFiling)"
+
+      submitted_at:
+        type: datetime?
+        description: "When the period was submitted for approval (validation-window stamp)"
+
       data:
         type: json?
         description: "Extensible payload"
@@ -72,8 +81,11 @@ models:
         description: "Audit metadata"
 
     indexes:
-      - type: index
+      # One approval cycle per employee per period (among live rows).
+      - type: unique
         fields: [company_id, employee_id, year, month]
+        where: "deleted_at IS NULL"
+        description: "One approval cycle per employee per period"
 
 enums:
   - name: TimesheetApprovalStatus
