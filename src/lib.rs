@@ -38,6 +38,19 @@ pub use application::service::TimesheetApprovalService;
 // Re-exports - Workflows
 pub use application::workflows::*;
 
+// <<< CUSTOM
+// The validated write path (entries under the period lock, submit window, period transitions,
+// approvals seam — H-6) and its guarded HTTP composition, plus `company_scope` re-exported for
+// the RLS probe suite (tests/ can only see the public surface, mirroring backbone-party).
+pub use application::service::{
+    last_day_of_month, TimesheetEntryDto, TimesheetError, TimesheetWriteService,
+    TimesheetFiling, TimesheetFilingRequest, TimesheetSeamError, TimesheetVerdict,
+    UnwiredTimesheetApprovals,
+};
+pub use presentation::http::create_guarded_timesheet_routes;
+pub use backbone_orm::company_scope;
+// END CUSTOM
+
 use std::sync::Arc;
 use axum::Router;
 use sqlx::PgPool;
@@ -58,6 +71,9 @@ pub struct TimesheetModule {
     pub(crate) timesheet_service: Arc<TimesheetService>,
     pub(crate) timesheet_approval_service: Arc<TimesheetApprovalService>,
     // <<< CUSTOM FIELDS
+    /// Validated entry + period writes (period lock, submit window, overlap mapping, approvals
+    /// seam). The guarded routes compose off this; `set_approvals` wires the engine port.
+    pub timesheet_write_service: Arc<TimesheetWriteService>,
     // END CUSTOM
 }
 
@@ -88,10 +104,29 @@ impl TimesheetModule {
     /// mount exposes unguarded writes. Compose a guarded router (read + validated
     /// writes) for production, or call `all_crud_routes()` to opt into the full
     /// unguarded surface explicitly.
-    #[deprecated(note = "mounts unvalidated generic CRUD on every entity; compose a guarded router for production, or call all_crud_routes() for the intentional full/unguarded surface")]
+    #[deprecated(note = "mounts unvalidated generic CRUD; prefer readonly_routes() + validated writes, or all_crud_routes() for the full/unguarded surface")]
     pub fn routes(&self) -> Router {
         self.all_crud_routes()
     }
+
+    /// Read-only routes for every entity (GET endpoints only) — the safe base.
+    ///
+    /// Generic mutation can't reach here, so this surface cannot bypass a
+    /// validated write service's invariants. Use this as the production base and
+    /// merge validated write routes (or a write service's HTTP layer) onto it.
+    pub fn readonly_routes(&self) -> Router {
+        use presentation::http::{
+            create_timesheet_read_routes,
+            create_timesheet_approval_read_routes,
+        };
+
+        Router::new()
+            .merge(create_timesheet_read_routes(self.timesheet_service.clone()))
+            .merge(create_timesheet_approval_read_routes(self.timesheet_approval_service.clone()))
+    }
+
+    // <<< CUSTOM METHODS
+    // END CUSTOM
 }
 
 /// Builder for TimesheetModule
@@ -130,12 +165,14 @@ impl TimesheetModuleBuilder {
         let timesheet_approval_service = Arc::new(TimesheetApprovalService::with_repository(timesheet_approval_repository.clone()));
 
         // <<< CUSTOM
+        let timesheet_write_service = Arc::new(TimesheetWriteService::new(db_pool.clone()));
         // END CUSTOM
 
         Ok(TimesheetModule {
             timesheet_service,
             timesheet_approval_service,
             // <<< CUSTOM
+            timesheet_write_service,
             // END CUSTOM
         })
     }

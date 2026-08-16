@@ -9,6 +9,8 @@ mod timesheet_approval_repository;
 
 // Custom persistence modules
 // <<< CUSTOM
+// Hand-written write SQL for the entry + period-approval flows (user-owned file).
+mod timesheet_write_repository;
 // END CUSTOM
 
 // Re-exports
@@ -24,4 +26,5 @@ pub use backbone_orm::repository::{
 
 // Re-export custom persistence types
 // <<< CUSTOM
+pub use timesheet_write_repository::{EntryRow, NewEntry, PeriodRow, TimesheetWriteRepository};
 // END CUSTOM

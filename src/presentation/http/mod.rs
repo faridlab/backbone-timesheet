@@ -9,10 +9,13 @@ pub mod timesheet_handler;
 pub mod timesheet_approval_handler;
 
 // <<< CUSTOM
+// Guarded composition (user-owned file): validated entry/period writes + safe reads.
+pub mod guarded_routes;
 // END CUSTOM
 
 // Re-exports
 pub use timesheet_handler::{create_timesheet_routes, create_timesheet_read_routes, create_timesheet_write_routes};
 pub use timesheet_approval_handler::{create_timesheet_approval_routes, create_timesheet_approval_read_routes, create_timesheet_approval_write_routes};
 // <<< CUSTOM
+pub use guarded_routes::create_guarded_timesheet_routes;
 // END CUSTOM

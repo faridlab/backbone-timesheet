@@ -11,9 +11,22 @@ pub mod timesheet_service;
 pub mod timesheet_approval_service;
 
 // <<< CUSTOM
+// The approvals seam (Wave 1 P2, H-6 — mirrors timeoff P1's port; Timesheet-prefixed types so a
+// host composing both modules imports no colliding names). Default Unwired keeps the module
+// behaving exactly as before until the app wires a real port against backbone-approvals.
+pub mod approvals_port;
+// The validated write path (entry CRUD under the period lock, submit window, period transitions).
+pub mod timesheet_write_service;
 // END CUSTOM
 
 pub use timesheet_service::TimesheetService;
 pub use timesheet_approval_service::TimesheetApprovalService;
 // <<< CUSTOM
+pub use approvals_port::{
+    TimesheetFiling, TimesheetFilingRequest, TimesheetSeamError, TimesheetVerdict,
+    UnwiredTimesheetApprovals,
+};
+pub use timesheet_write_service::{
+    last_day_of_month, TimesheetEntryDto, TimesheetError, TimesheetWriteService,
+};
 // END CUSTOM
