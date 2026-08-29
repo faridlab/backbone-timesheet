@@ -1,0 +1,44 @@
+# =============================================================================
+# timesheet Hooks — the converged analytic line's DB-reachable invariants
+# =============================================================================
+# ADR-0015: every guard declares its enforcement layer. The three invariants
+# below guard data reachable from raw-SQL write paths (the write service issues
+# raw sqlx, and a host composing this module can too), so each carries a DB
+# backstop; `both` adds the service pre-check that maps the violation to a
+# typed error instead of a constraint 500.
+# =============================================================================
+
+module: timesheet
+version: 2
+
+rules:
+  # -- entry overlap (DB-only: the EXCLUDE constraint IS the arbiter) -----------
+  - id: TS-EX1
+    name: ranged_entries_no_overlap
+    when: insert, update
+    assert: "two live entries of one employee may not overlap when both carry explicit start/end instants; duration-only rows are exempt"
+    error_code: entry_overlap
+    enforcement: db
+
+  # -- leave-regeneration no-duplicates (db: partial unique) --------------------
+  - id: TS-LV1
+    name: one_live_leave_row_per_request_day
+    when: insert
+    assert: "at most one live row per (company, source_timeoff_request_id, date); leave regeneration is delete-and-regenerate inside one tx, and a raw duplicate insert raises 23505 on the partial unique"
+    error_code: duplicate_leave_row
+    enforcement: db
+
+  # -- invoiced-row write protection (both: trigger + typed error) --------------
+  - id: TS-INV1
+    name: invoiced_row_write_guard
+    when: update, delete
+    assert: "a row whose invoice_id is set may not change any pricing/anchoring column; clearing invoice_id (the unbill/reversal path) stays legal, and soft-deleting an invoiced row refuses"
+    error_code: invoiced_row_locked
+    enforcement: both
+
+events:
+  # Emission is the write service's responsibility (user-owned
+  # timesheet_write_service.rs); listed here so the surface is on record.
+  LeaveRowsRegenerated:
+    when: "regenerate_leave_rows commits (delete-and-regenerate off a settled timeoff request)"
+    payload: [company_id, employee_id, timeoff_request_id, rows_inserted]

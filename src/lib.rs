@@ -39,18 +39,21 @@ pub use application::service::TimesheetApprovalService;
 pub use application::workflows::*;
 
 // <<< CUSTOM
-// The validated write path (entries under the period lock, submit window, period transitions,
-// approvals seam — H-6) and its guarded HTTP composition, plus `company_scope` re-exported for
-// the RLS probe suite (tests/ can only see the public surface, mirroring backbone-party).
+// The validated write path (analytic-line entries under the period lock, submit window, period
+// transitions, approvals seam — H-6; plain-stored amounts with reprice-on-qualifying-write,
+// invoiced-row write guard, leave regeneration) and its guarded HTTP composition, plus
+// `company_scope` re-exported for the RLS probe suite (tests/ can only see the public surface,
+// mirroring backbone-party).
 pub use application::service::{
     last_day_of_month, TimesheetEntryDto, TimesheetError, TimesheetWriteService,
     TimesheetFiling, TimesheetFilingRequest, TimesheetSeamError, TimesheetVerdict,
     UnwiredTimesheetApprovals,
+    RateLookup, RateSet, RateSourceError, TimesheetRateSource, UnwiredRateSource,
 };
+pub use infrastructure::persistence::{LeaveDayEntry, LeaveRowSync};
 pub use presentation::http::create_guarded_timesheet_routes;
 pub use backbone_orm::company_scope;
 // END CUSTOM
-
 use std::sync::Arc;
 use axum::Router;
 use sqlx::PgPool;

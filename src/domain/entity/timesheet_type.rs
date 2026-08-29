@@ -11,6 +11,7 @@ use utoipa::ToSchema;
 pub enum TimesheetType {
     Work,
     Overtime,
+    Timeoff,
 }
 
 impl std::fmt::Display for TimesheetType {
@@ -18,6 +19,7 @@ impl std::fmt::Display for TimesheetType {
         match self {
             Self::Work => write!(f, "work"),
             Self::Overtime => write!(f, "overtime"),
+            Self::Timeoff => write!(f, "timeoff"),
         }
     }
 }
@@ -29,6 +31,7 @@ impl FromStr for TimesheetType {
         match s.to_lowercase().as_str() {
             "work" => Ok(Self::Work),
             "overtime" => Ok(Self::Overtime),
+            "timeoff" => Ok(Self::Timeoff),
             _ => Err(format!("Unknown TimesheetType variant: {}", s)),
         }
     }

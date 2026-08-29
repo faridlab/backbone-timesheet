@@ -26,5 +26,8 @@ pub use backbone_orm::repository::{
 
 // Re-export custom persistence types
 // <<< CUSTOM
-pub use timesheet_write_repository::{EntryRow, NewEntry, PeriodRow, TimesheetWriteRepository};
+pub use timesheet_write_repository::{
+    EntryRow, EntrySnapshot, EntryWrite, LeaveDayEntry, LeaveRowSync, NewEntry, PeriodRow,
+    TimesheetWriteRepository,
+};
 // END CUSTOM

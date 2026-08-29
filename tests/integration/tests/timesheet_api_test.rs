@@ -35,6 +35,16 @@ impl TestDataGenerator for TimesheetTestData {
             "time_start": null,
             "time_end": null,
             "entry_type": "work",
+            "unit_amount": 0,
+            "currency": format!("Test {}", Uuid::new_v4().to_string().split('-').next().unwrap()),
+            "activity_type_id": null,
+            "billing_rate": null,
+            "costing_rate": null,
+            "is_billable": false,
+            "billable_amount": 0,
+            "costing_amount": 0,
+            "invoice_id": null,
+            "source_timeoff_request_id": null,
             "metadata": json!({}),
         })
     }
@@ -54,6 +64,16 @@ impl TestDataGenerator for TimesheetTestData {
             "time_start": null,
             "time_end": null,
             "entry_type": "work",
+            "unit_amount": 0,
+            "currency": format!("Test {}", Uuid::new_v4().to_string().split('-').next().unwrap()),
+            "activity_type_id": null,
+            "billing_rate": null,
+            "costing_rate": null,
+            "is_billable": false,
+            "billable_amount": 0,
+            "costing_amount": 0,
+            "invoice_id": null,
+            "source_timeoff_request_id": null,
             "metadata": json!({}),
         })
     }

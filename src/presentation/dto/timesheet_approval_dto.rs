@@ -356,4 +356,3 @@ impl backbone_core::ApplyUpdateDto<UpdateTimesheetApprovalDto> for TimesheetAppr
 // Add custom DTOs specific to TimesheetApproval here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
-

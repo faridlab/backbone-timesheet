@@ -1,9 +1,9 @@
-//! Hand-written write SQL for the timesheet entry + period-approval flows (H-6).
+//! Hand-written write SQL for the timesheet analytic line + period-approval flows.
 //!
 //! User-owned (declared in `metaphor.codegen.yaml`); the generator never touches it. Per the
 //! 4-layer rule the SQL lives here, while [`crate::application::service::
 //! timesheet_write_service::TimesheetWriteService`] owns the period-lock checks, the validation
-//! window, the approvals seam, and the error mapping.
+//! window, the approvals seam, the rate-source seam, and the error mapping.
 //!
 //! Every method takes a `&mut PgConnection` (a transaction begun by the write service) — an
 //! entry mutation and its period-lock read must observe one consistent snapshot, and a period
@@ -12,6 +12,10 @@
 //!
 //! Soft-delete lives in `metadata` JSONB (`deleted_at` key): every "live row" predicate is
 //! `(metadata->>'deleted_at') IS NULL`, mirroring the module's partial indexes and the fence.
+//!
+//! Plain-amount posture (the converged analytic line): every rate/amount column below is
+//! STORED. The service resolves rates on qualifying writes and hands the repo a fully stamped
+//! [`EntryWrite`]; no SQL here computes an amount, and no read path reprices.
 
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use rust_decimal::Decimal;
@@ -20,8 +24,7 @@ use uuid::Uuid;
 
 use crate::domain::entity::TimesheetType;
 
-/// One entry row (create/update return shape). `year`/`month` are derived from `date` by the
-/// service; the table columns stay denormalized for the period queries below.
+/// Every column of the analytic line the write paths return (the DTO shape).
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct EntryRow {
     pub id: Uuid,
@@ -33,6 +36,34 @@ pub struct EntryRow {
     pub time_start: Option<DateTime<Utc>>,
     pub time_end: Option<DateTime<Utc>>,
     pub entry_type: TimesheetType,
+    pub unit_amount: Decimal,
+    pub currency: String,
+    pub activity_type_id: Option<Uuid>,
+    pub billing_rate: Option<Decimal>,
+    pub costing_rate: Option<Decimal>,
+    pub is_billable: bool,
+    pub billable_amount: Decimal,
+    pub costing_amount: Decimal,
+    pub invoice_id: Option<Uuid>,
+    pub source_timeoff_request_id: Option<Uuid>,
+}
+
+/// The row's stored state an update decision needs: period coordinates for the
+/// lock, the invoice link for the write guard, and the rate/hours snapshot the
+/// plain-amount rules keep when a write does not qualify for repricing.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct EntrySnapshot {
+    pub employee_id: Uuid,
+    pub year: i32,
+    pub month: i32,
+    pub invoice_id: Option<Uuid>,
+    pub time_start: Option<DateTime<Utc>>,
+    pub time_end: Option<DateTime<Utc>>,
+    pub unit_amount: Decimal,
+    pub activity_type_id: Option<Uuid>,
+    pub billing_rate: Option<Decimal>,
+    pub costing_rate: Option<Decimal>,
+    pub is_billable: bool,
 }
 
 /// The live period-approval row (if any) for one employee-period.
@@ -44,7 +75,9 @@ pub struct PeriodRow {
     pub approval_request_id: Option<Uuid>,
 }
 
-/// New-entry payload shared by create and update (update replaces every mutable column).
+/// New-entry payload shared by create and update. The service derives the plain-stored
+/// figures (`unit_amount` from the windows or the explicit hours input; rates through the
+/// rate-source port on qualifying writes) and hands the repo a stamped [`EntryWrite`].
 #[derive(Debug, Clone)]
 pub struct NewEntry {
     pub employee_id: Uuid,
@@ -55,6 +88,57 @@ pub struct NewEntry {
     pub time_start: Option<DateTime<Utc>>,
     pub time_end: Option<DateTime<Utc>>,
     pub entry_type: &'static str,
+    /// Explicit hours for a duration-only entry (used when the windows are absent).
+    pub hours: Option<Decimal>,
+    /// The row's activity classification — a rate-determining field.
+    pub activity_type_id: Option<Uuid>,
+    /// Billability FLAG (defaults to true on create, keeps the stored flag when absent on update).
+    pub is_billable: Option<bool>,
+}
+
+/// A fully stamped entry write: the plain-stored hours + rate/amount snapshots the service
+/// resolved. `year`/`month` derive from `date`; the table columns stay denormalized for the
+/// period queries.
+#[derive(Debug, Clone)]
+pub struct EntryWrite {
+    pub project_id: Option<Uuid>,
+    pub task_id: Option<Uuid>,
+    pub date: NaiveDate,
+    pub remark: Option<String>,
+    pub time_start: Option<DateTime<Utc>>,
+    pub time_end: Option<DateTime<Utc>>,
+    pub entry_type: &'static str,
+    pub unit_amount: Decimal,
+    pub activity_type_id: Option<Uuid>,
+    pub billing_rate: Option<Decimal>,
+    pub costing_rate: Option<Decimal>,
+    pub is_billable: bool,
+    pub billable_amount: Decimal,
+    pub costing_amount: Decimal,
+}
+
+/// The column list every entry RETURNING shares.
+const ENTRY_COLUMNS: &str = "id, employee_id, project_id, task_id, date, remark, time_start, time_end, entry_type, \
+                             unit_amount, currency, activity_type_id, billing_rate, costing_rate, is_billable, \
+                             billable_amount, costing_amount, invoice_id, source_timeoff_request_id";
+
+/// One day of a leave regeneration: the date and the plain-stored hours for that day.
+#[derive(Debug, Clone)]
+pub struct LeaveDayEntry {
+    pub date: NaiveDate,
+    pub hours: Decimal,
+}
+
+/// A leave regeneration request: delete the request's live rows, insert one row per day.
+#[derive(Debug, Clone)]
+pub struct LeaveRowSync {
+    pub company_id: Uuid,
+    pub employee_id: Uuid,
+    pub timeoff_request_id: Uuid,
+    pub project_id: Uuid,
+    pub task_id: Option<Uuid>,
+    pub remark: Option<String>,
+    pub entries: Vec<LeaveDayEntry>,
 }
 
 pub struct TimesheetWriteRepository;
@@ -109,9 +193,10 @@ impl TimesheetWriteRepository {
         .await
     }
 
-    /// Total logged hours for the period (summed over ranged entries; duration-only rows have
-    /// no bounds and contribute nothing until ranged). One decimal hour figure, the number the
-    /// filing shows the approver and what approve stamps as `billable_time`.
+    /// Total logged hours for the period — a plain SUM over the stored `unit_amount` (the
+    /// converged hours figure: ranged rows carry their window-derived hours, duration-only
+    /// rows their explicit input). One decimal hour figure, the number the filing shows the
+    /// approver and what approve stamps as `billable_time`. Never recomputed from windows.
     pub async fn sum_period_hours(
         &self,
         conn: &mut PgConnection,
@@ -121,10 +206,9 @@ impl TimesheetWriteRepository {
         month: i32,
     ) -> Result<Decimal, sqlx::Error> {
         sqlx::query_scalar::<_, Decimal>(
-            r#"SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (time_end - time_start)) / 3600.0), 0)::numeric
+            r#"SELECT COALESCE(SUM(unit_amount), 0)::numeric(18,2)
                  FROM timesheet.timesheets
                 WHERE company_id = $1 AND employee_id = $2 AND year = $3 AND month = $4
-                  AND time_start IS NOT NULL AND time_end IS NOT NULL
                   AND (metadata->>'deleted_at') IS NULL"#,
         )
         .bind(company_id)
@@ -137,80 +221,126 @@ impl TimesheetWriteRepository {
 
     // ─── entries ────────────────────────────────────────────────────────────────
 
-    /// Insert an entry. The `timesheets_no_overlap` EXCLUDE constraint is the arbiter for ranged
-    /// rows — a clashing insert lands here as 23P01 and maps to `EntryOverlap` upstream.
-    /// Duration-only rows (NULL bounds) are exempt by the constraint's predicate.
-    #[allow(clippy::too_many_arguments)]
+    /// The row's stored state for update decisions (period coordinates, invoice link, and the
+    /// plain-stored snapshot). Reads without repricing — the plain-amount rule.
+    pub async fn entry_snapshot(
+        &self,
+        conn: &mut PgConnection,
+        company_id: Uuid,
+        entry_id: Uuid,
+    ) -> Result<Option<EntrySnapshot>, sqlx::Error> {
+        sqlx::query_as::<_, EntrySnapshot>(
+            r#"SELECT employee_id, year, month, invoice_id, time_start, time_end, unit_amount,
+                      activity_type_id, billing_rate, costing_rate, is_billable
+                 FROM timesheet.timesheets
+                WHERE company_id = $1 AND id = $2
+                  AND (metadata->>'deleted_at') IS NULL"#,
+        )
+        .bind(company_id)
+        .bind(entry_id)
+        .fetch_optional(conn)
+        .await
+    }
+
+    /// Insert an entry with its stamped plain-stored figures. The `timesheets_no_overlap`
+    /// EXCLUDE constraint is the arbiter for ranged rows — a clashing insert lands here as
+    /// 23P01 and maps to `EntryOverlap` upstream. Duration-only rows (NULL bounds) are exempt
+    /// by the constraint's predicate.
     pub async fn insert_entry(
         &self,
         conn: &mut PgConnection,
         company_id: Uuid,
-        e: &NewEntry,
+        employee_id: Uuid,
+        w: &EntryWrite,
         now: DateTime<Utc>,
     ) -> Result<EntryRow, sqlx::Error> {
+        // employee_id is an INSERT-only column: updates never move a row between
+        // employees (the row's employee is the resolution itself).
         sqlx::query_as::<_, EntryRow>(
-            r#"INSERT INTO timesheet.timesheets
+            &format!(r#"INSERT INTO timesheet.timesheets
                    (id, company_id, employee_id, project_id, task_id, year, month, date,
-                    remark, time_start, time_end, entry_type, metadata)
+                    remark, time_start, time_end, entry_type,
+                    unit_amount, activity_type_id, billing_rate, costing_rate, is_billable,
+                    billable_amount, costing_amount, metadata)
                VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::timesheet_type,
-                       jsonb_build_object('created_at', to_jsonb($12::timestamptz),
-                                          'updated_at', to_jsonb($12::timestamptz)))
-               RETURNING id, employee_id, project_id, task_id, date, remark, time_start, time_end, entry_type"#,
+                       $12, $13, $14, $15, $16, $17, $18,
+                       jsonb_build_object('created_at', to_jsonb($19::timestamptz),
+                                          'updated_at', to_jsonb($19::timestamptz)))
+               RETURNING {ENTRY_COLUMNS}"#),
         )
         .bind(company_id)
-        .bind(e.employee_id)
-        .bind(e.project_id)
-        .bind(e.task_id)
-        .bind(e.date.year())
-        .bind(e.date.month() as i32)
-        .bind(e.date)
-        .bind(&e.remark)
-        .bind(e.time_start)
-        .bind(e.time_end)
-        .bind(e.entry_type)
+        .bind(employee_id)
+        .bind(w.project_id)
+        .bind(w.task_id)
+        .bind(w.date.year())
+        .bind(w.date.month() as i32)
+        .bind(w.date)
+        .bind(&w.remark)
+        .bind(w.time_start)
+        .bind(w.time_end)
+        .bind(w.entry_type)
+        .bind(w.unit_amount)
+        .bind(w.activity_type_id)
+        .bind(w.billing_rate)
+        .bind(w.costing_rate)
+        .bind(w.is_billable)
+        .bind(w.billable_amount)
+        .bind(w.costing_amount)
         .bind(now)
         .fetch_one(conn)
         .await
     }
 
-    /// Replace an entry's mutable columns (full update — the service validates the whole patch).
-    /// The EXCLUDE constraint re-validates the new range against every other live entry.
+    /// Write an entry's mutable columns with their stamped figures (full update — the service
+    /// validates the whole patch and resolves what the plain-amount rules re-stamp). The
+    /// EXCLUDE constraint re-validates the new range against every other live entry, and the
+    /// invoiced-row guard trigger backstops writes the service already refused.
     #[allow(clippy::too_many_arguments)]
     pub async fn update_entry(
         &self,
         conn: &mut PgConnection,
         company_id: Uuid,
         entry_id: Uuid,
-        e: &NewEntry,
+        w: &EntryWrite,
         now: DateTime<Utc>,
     ) -> Result<Option<EntryRow>, sqlx::Error> {
         sqlx::query_as::<_, EntryRow>(
-            r#"UPDATE timesheet.timesheets
+            &format!(r#"UPDATE timesheet.timesheets
                   SET project_id = $3, task_id = $4, year = $5, month = $6, date = $7,
                       remark = $8, time_start = $9, time_end = $10,
                       entry_type = $11::timesheet_type,
-                      metadata = metadata || jsonb_build_object('updated_at', to_jsonb($12::timestamptz))
+                      unit_amount = $12, activity_type_id = $13,
+                      billing_rate = $14, costing_rate = $15, is_billable = $16,
+                      billable_amount = $17, costing_amount = $18,
+                      metadata = metadata || jsonb_build_object('updated_at', to_jsonb($19::timestamptz))
                 WHERE company_id = $1 AND id = $2
                   AND (metadata->>'deleted_at') IS NULL
-                RETURNING id, employee_id, project_id, task_id, date, remark, time_start, time_end, entry_type"#,
+                RETURNING {ENTRY_COLUMNS}"#),
         )
         .bind(company_id)
         .bind(entry_id)
-        .bind(e.project_id)
-        .bind(e.task_id)
-        .bind(e.date.year())
-        .bind(e.date.month() as i32)
-        .bind(e.date)
-        .bind(&e.remark)
-        .bind(e.time_start)
-        .bind(e.time_end)
-        .bind(e.entry_type)
+        .bind(w.project_id)
+        .bind(w.task_id)
+        .bind(w.date.year())
+        .bind(w.date.month() as i32)
+        .bind(w.date)
+        .bind(&w.remark)
+        .bind(w.time_start)
+        .bind(w.time_end)
+        .bind(w.entry_type)
+        .bind(w.unit_amount)
+        .bind(w.activity_type_id)
+        .bind(w.billing_rate)
+        .bind(w.costing_rate)
+        .bind(w.is_billable)
+        .bind(w.billable_amount)
+        .bind(w.costing_amount)
         .bind(now)
         .fetch_optional(conn)
         .await
     }
 
-    /// Soft-delete an entry (period must be open — checked by the service first).
+    /// Soft-delete an entry (period must be open and the row unbilled — checked by the service first).
     pub async fn soft_delete_entry(
         &self,
         conn: &mut PgConnection,
@@ -232,23 +362,86 @@ impl TimesheetWriteRepository {
         Ok(res.rows_affected() > 0)
     }
 
-    /// The entry's (employee, year, month) — so the delete path can check the period lock
-    /// without trusting a client-supplied period.
-    pub async fn entry_period(
+    // ─── leave regeneration (delete-and-regenerate, origin-fenced) ─────────────
+
+    /// Live rows of one leave request that already carried an invoice link — billed absence
+    /// is a loud operator case, never silently regenerated away.
+    pub async fn count_billed_leave_rows(
         &self,
         conn: &mut PgConnection,
         company_id: Uuid,
-        entry_id: Uuid,
-    ) -> Result<Option<(Uuid, i32, i32)>, sqlx::Error> {
-        sqlx::query_as::<_, (Uuid, i32, i32)>(
-            r#"SELECT employee_id, year, month FROM timesheet.timesheets
-                WHERE company_id = $1 AND id = $2
+        timeoff_request_id: Uuid,
+    ) -> Result<i64, sqlx::Error> {
+        sqlx::query_scalar::<_, i64>(
+            r#"SELECT count(*) FROM timesheet.timesheets
+                WHERE company_id = $1 AND source_timeoff_request_id = $2
+                  AND invoice_id IS NOT NULL
                   AND (metadata->>'deleted_at') IS NULL"#,
         )
         .bind(company_id)
-        .bind(entry_id)
-        .fetch_optional(conn)
+        .bind(timeoff_request_id)
+        .fetch_one(conn)
         .await
+    }
+
+    /// Soft-delete the request's live rows — the first half of regeneration. Runs inside the
+    /// regeneration tx, so the partial unique `(company_id, source_timeoff_request_id, date)`
+    /// sees delete+insert as one step and a raw duplicate insert cannot survive it.
+    pub async fn soft_delete_leave_rows(
+        &self,
+        conn: &mut PgConnection,
+        company_id: Uuid,
+        timeoff_request_id: Uuid,
+        now: DateTime<Utc>,
+    ) -> Result<u64, sqlx::Error> {
+        let res = sqlx::query(
+            r#"UPDATE timesheet.timesheets
+                  SET metadata = metadata || jsonb_build_object('deleted_at', to_jsonb($3::timestamptz))
+                WHERE company_id = $1 AND source_timeoff_request_id = $2
+                  AND (metadata->>'deleted_at') IS NULL"#,
+        )
+        .bind(company_id)
+        .bind(timeoff_request_id)
+        .bind(now)
+        .execute(conn)
+        .await?;
+        Ok(res.rows_affected())
+    }
+
+    /// Insert one leave-regenerated day row: `entry_type='timeoff'`, hours as the plain-stored
+    /// `unit_amount`, rates NULL (no rate source applies to absence) so amounts are 0, year and
+    /// month derived from the date. The partial unique on the origin key is the no-duplicates
+    /// backstop.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn insert_leave_row(
+        &self,
+        conn: &mut PgConnection,
+        sync: &LeaveRowSync,
+        day: &LeaveDayEntry,
+        now: DateTime<Utc>,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"INSERT INTO timesheet.timesheets
+                   (id, company_id, employee_id, project_id, task_id, year, month, date,
+                    remark, entry_type, unit_amount, source_timeoff_request_id, metadata)
+               VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, 'timeoff', $9, $10,
+                       jsonb_build_object('created_at', to_jsonb($11::timestamptz),
+                                          'updated_at', to_jsonb($11::timestamptz)))"#,
+        )
+        .bind(sync.company_id)
+        .bind(sync.employee_id)
+        .bind(sync.project_id)
+        .bind(sync.task_id)
+        .bind(day.date.year())
+        .bind(day.date.month() as i32)
+        .bind(day.date)
+        .bind(sync.remark.as_deref())
+        .bind(day.hours)
+        .bind(sync.timeoff_request_id)
+        .bind(now)
+        .execute(conn)
+        .await?;
+        Ok(())
     }
 
     // ─── period transitions ────────────────────────────────────────────────────
@@ -375,4 +568,3 @@ impl TimesheetWriteRepository {
         Ok(res.rows_affected() > 0)
     }
 }
-

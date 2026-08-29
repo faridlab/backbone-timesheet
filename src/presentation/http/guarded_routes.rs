@@ -70,20 +70,30 @@ struct EntryBody {
     #[serde(default)]
     time_end: Option<DateTime<Utc>>,
     #[serde(default)]
-    entry_type: Option<String>, // "work" (default) | "overtime"
+    entry_type: Option<String>, // "work" (default) | "overtime" — never "timeoff" by hand
     #[serde(default)]
     remark: Option<String>,
+    /// Explicit hours for a duration-only entry (ignored when the windows are present).
+    #[serde(default)]
+    hours: Option<rust_decimal::Decimal>,
+    /// Activity classification — one of the rate-determining fields.
+    #[serde(default)]
+    activity_type_id: Option<Uuid>,
+    /// Billability flag (defaults to true on create, keeps the stored flag when absent).
+    #[serde(default)]
+    is_billable: Option<bool>,
 }
 
 impl EntryBody {
     fn validate(&self) -> Result<NewEntry, TimesheetError> {
+        // The guarded surface mints work/overtime entries only. Leave rows ('timeoff') come
+        // exclusively from the leave-regeneration verb off a settled timeoff request — a
+        // hand-written timeoff row would forge the leave fence, so the vocabulary refuses it.
         let entry_type = match self.entry_type.as_deref() {
             None => "work",
-            Some(s) => match crate::domain::entity::TimesheetType::from_str(s) {
-                Ok(crate::domain::entity::TimesheetType::Overtime) => "overtime",
-                Ok(_) => "work",
-                Err(_) => return Err(TimesheetError::BadEntryType),
-            },
+            Some("work") => "work",
+            Some("overtime") => "overtime",
+            Some(_) => return Err(TimesheetError::BadEntryType),
         };
         Ok(NewEntry {
             employee_id: self.employee_id,
@@ -94,6 +104,9 @@ impl EntryBody {
             time_start: self.time_start,
             time_end: self.time_end,
             entry_type,
+            hours: self.hours,
+            activity_type_id: self.activity_type_id,
+            is_billable: self.is_billable,
         })
     }
 }

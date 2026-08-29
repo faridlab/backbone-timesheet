@@ -1,6 +1,10 @@
-//! Integrity probes — route-level (Wave 1 P2, H-6). The guarded composition locks generic
-//! mutation, the period lock and submit window hold, the EXCLUDE overlap surfaces as 409, the
-//! approvals seam fails closed (TR2), and the company fence holds cross-tenant.
+//! Integrity probes — route-level (Wave 1 P2, H-6) + the analytic-line probes. The guarded
+//! composition locks generic mutation, the period lock and submit window hold, the EXCLUDE
+//! overlap surfaces as 409, the approvals seam fails closed (TR2), and the company fence holds
+//! cross-tenant. The analytic-line probes pin the plain-amount rules: amounts are plain-stored
+//! and reprice ONLY on qualifying writes (never on reads), the rate ladder's stages flow through
+//! the port, invoiced rows are write-protected (typed error + DB trigger backstop), and leave
+//! rows are minted by the regeneration verb only — never by hand.
 //!
 //! Every request runs behind the REAL `company_auth` middleware with a minted HS256 token —
 //! the same mounting a composing service uses in production (the party probe-suite harness
@@ -16,14 +20,16 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::middleware::from_fn_with_state;
 use chrono::{DateTime, Datelike, Duration, Months, NaiveDate, Utc};
+use rust_decimal::Decimal;
 use sqlx::PgPool;
 use tower::ServiceExt;
 use uuid::Uuid;
 
 use backbone_auth::company::{company_auth, CompanyVerifier};
 use backbone_timesheet::{
-    create_guarded_timesheet_routes, company_scope, TimesheetFiling, TimesheetFilingRequest,
-    TimesheetModule, TimesheetSeamError, TimesheetVerdict,
+    create_guarded_timesheet_routes, company_scope, RateLookup, RateSet, RateSourceError,
+    TimesheetFiling, TimesheetFilingRequest, TimesheetModule, TimesheetRateSource,
+    TimesheetSeamError, TimesheetVerdict, UnwiredRateSource,
 };
 
 const SECRET: &[u8] = b"timesheet-integrity-probe-secret";
@@ -71,6 +77,13 @@ async fn req_full(
     let status = resp.status();
     let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
     let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
+    // A 5xx body carries the service's own error message — surface it so a probe
+    // failure explains itself instead of asserting "500 != 201" blindly.
+    if std::env::var("PROBE_LOG_BODIES").is_ok() && !status.is_success() {
+        eprintln!("probe got {status}: {json}");
+    } else if status.is_server_error() {
+        eprintln!("probe got {status}: {json}");
+    }
     (status, json)
 }
 
@@ -84,8 +97,9 @@ async fn req(
     req_full(app, method, uri, token, body).await.0
 }
 
-/// Scoped scalar read for assertions — binds `app.company_id` the way the request scope does
-/// so the FORCE-fenced tables answer under RLS (an unbound connection sees 0 rows by design).
+/// Scoped scalar read for assertions — binds `app.company_id` on the probe's OWN transaction
+/// so the FORCE-fenced tables answer under RLS (an unbound connection sees 0 rows by design:
+/// the task-local alone binds nothing on a connection, so a bare pool fetch would fail closed).
 /// The SQL embeds employee/period filters inline; the company filter IS the fence.
 async fn scoped_one<T>(pool: &PgPool, company: Uuid, sql: String) -> T
 where
@@ -95,9 +109,52 @@ where
         + Sync
         + Unpin,
 {
-    company_scope::with_company_scope(Some(company), async move {
-        sqlx::query_scalar::<_, T>(&sql).fetch_one(pool).await.unwrap()
-    }).await
+    let mut tx = pool.begin().await.unwrap();
+    company_scope::bind_company_on(&mut tx, company).await.unwrap();
+    let v = sqlx::query_scalar::<_, T>(&sql).fetch_one(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    v
+}
+
+/// Scoped statement execution returning the sqlx Result, so probes can assert the DB-level
+/// backstops (a raw duplicate insert raising 23505, the invoiced-row guard trigger raising).
+/// Runs bound on its own transaction; a failed statement rolls it back.
+async fn scoped_exec(
+    pool: &PgPool,
+    company: Uuid,
+    sql: String,
+) -> Result<sqlx::postgres::PgQueryResult, sqlx::Error> {
+    let mut tx = pool.begin().await.unwrap();
+    company_scope::bind_company_on(&mut tx, company).await.unwrap();
+    let res = sqlx::query(&sql).execute(&mut *tx).await;
+    match res {
+        Ok(r) => {
+            tx.commit().await.unwrap();
+            Ok(r)
+        }
+        Err(e) => {
+            let _ = tx.rollback().await;
+            Err(e)
+        }
+    }
+}
+
+/// A decimal out of a JSON value whichever way the serializer spelled it (string or number).
+fn dec_from_json(v: &serde_json::Value) -> Decimal {
+    if let Some(s) = v.as_str() {
+        if let Ok(d) = s.parse::<Decimal>() {
+            return d;
+        }
+    }
+    if let Some(f) = v.as_f64() {
+        if let Some(d) = Decimal::from_f64_retain(f) {
+            return d;
+        }
+    }
+    if let Some(i) = v.as_i64() {
+        return Decimal::from(i);
+    }
+    panic!("probe cannot read a decimal out of {v}");
 }
 
 // ─── period fixtures ───────────────────────────────────────────────────────────
@@ -105,7 +162,12 @@ where
 /// `(year, month, a safe in-month date)` for the PREVIOUS month — always complete, so the
 /// submit window is always open for it (today is past its last day by construction).
 fn prev_month() -> (i32, i32, NaiveDate) {
-    let first_of_prev = Utc::now().date_naive().checked_sub_months(Months::new(1)).unwrap();
+    // Derive the TRUE first of the previous month: subtracting Months from today keeps the
+    // day-of-month (Aug 29 -> Jul 29), and "+5 days" would then spill into the current month,
+    // landing entries in a different (year, month) than the one the probes submit.
+    let today = Utc::now().date_naive();
+    let first_of_this_month = NaiveDate::from_ymd_opt(today.year(), today.month(), 1).unwrap();
+    let first_of_prev = first_of_this_month.checked_sub_months(Months::new(1)).unwrap();
     let (y, m) = (first_of_prev.year(), first_of_prev.month() as i32);
     (y, m, first_of_prev + Duration::days(5)) // day 6 — inside every month
 }
@@ -471,4 +533,448 @@ fn last_day_of_month_math() {
     assert_eq!(last_day_of_month(2024, 2), Some(NaiveDate::from_ymd_opt(2024, 2, 29).unwrap()), "leap year");
     assert_eq!(last_day_of_month(2026, 2), Some(NaiveDate::from_ymd_opt(2026, 2, 28).unwrap()), "common year");
     assert_eq!(last_day_of_month(2026, 12), Some(NaiveDate::from_ymd_opt(2026, 12, 31).unwrap()), "year boundary");
+}
+
+// ─── analytic-line rate fakes ──────────────────────────────────────────────────
+
+/// A rate source keyed by activity type id — the port shape a host adapter over
+/// `project.activity_types` would present. Unknown/absent activity resolves nothing
+/// (rates NULL — a visible absence).
+struct ActivityRateFake {
+    rates: std::collections::HashMap<Uuid, (Decimal, Decimal)>,
+    calls: std::sync::atomic::AtomicUsize,
+}
+
+impl ActivityRateFake {
+    fn new(pairs: Vec<(Uuid, (Decimal, Decimal))>) -> Self {
+        Self { rates: pairs.into_iter().collect(), calls: 0.into() }
+    }
+
+    fn calls(&self) -> usize {
+        self.calls.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+#[async_trait::async_trait]
+impl TimesheetRateSource for ActivityRateFake {
+    async fn resolve_rates(&self, req: &RateLookup) -> Result<RateSet, RateSourceError> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let resolved = req.activity_type_id.and_then(|a| self.rates.get(&a)).copied();
+        Ok(RateSet {
+            billing_rate: resolved.map(|(b, _)| b),
+            costing_rate: resolved.map(|(_, c)| c),
+        })
+    }
+}
+
+/// A flat rate source — every lookup resolves the same pair (whatever stage it stands for).
+struct FlatRateFake {
+    billing: Option<Decimal>,
+    costing: Option<Decimal>,
+    calls: std::sync::atomic::AtomicUsize,
+}
+
+impl FlatRateFake {
+    fn new(billing: Option<Decimal>, costing: Option<Decimal>) -> Self {
+        Self { billing, costing, calls: 0.into() }
+    }
+
+    fn calls(&self) -> usize {
+        self.calls.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+#[async_trait::async_trait]
+impl TimesheetRateSource for FlatRateFake {
+    async fn resolve_rates(&self, _req: &RateLookup) -> Result<RateSet, RateSourceError> {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Ok(RateSet { billing_rate: self.billing, costing_rate: self.costing })
+    }
+}
+
+/// Body for a ranged entry with an activity classification (the rate-determining field).
+fn entry_body_with_activity(
+    employee: Uuid,
+    date: NaiveDate,
+    start_h: u32,
+    end_h: u32,
+    activity: Option<Uuid>,
+    extra: &str,
+) -> String {
+    format!(
+        r#"{{"employeeId":"{employee}","date":"{date}","timeStart":"{}","timeEnd":"{}","activityTypeId":{}{}}}"#,
+        at(date, start_h).to_rfc3339(),
+        at(date, end_h).to_rfc3339(),
+        activity.map(|a| format!("\"{a}\"")).unwrap_or_else(|| "null".into()),
+        extra,
+    )
+}
+
+// ─── TS-10: plain amounts — reprice on QUALIFYING writes only ─────────────────
+
+#[tokio::test]
+async fn ts_tsm1_reprice_on_qualifying_write_only() {
+    let pool = pool().await;
+    let m = module(&pool).await;
+    let act_a = Uuid::new_v4();
+    let act_b = Uuid::new_v4();
+    let fake = std::sync::Arc::new(ActivityRateFake::new(vec![
+        (act_a, (Decimal::from(150), Decimal::from(75))),
+        (act_b, (Decimal::from(200), Decimal::from(90))),
+    ]));
+    m.timesheet_write_service.set_rate_source(fake.clone());
+    let company = Uuid::new_v4();
+    let employee = Uuid::new_v4();
+    let t = token_for(company);
+    let (y, mo, date) = prev_month();
+    let app = create_guarded_timesheet_routes(&m);
+
+    // Create: a qualifying write by definition — 8h x (150 / 75) stamped.
+    let (s, j) = req_full(
+        app.clone(),
+        "POST",
+        "/timesheets/entries",
+        &t,
+        entry_body_with_activity(employee, date, 9, 17, Some(act_a), ""),
+    )
+    .await;
+    assert_eq!(s, StatusCode::CREATED, "ranged entry with activity");
+    let id: Uuid = j.get("id").and_then(|v| v.as_str()).unwrap().parse().unwrap();
+    let q = |col: &str| format!("SELECT {col} FROM timesheet.timesheets WHERE id = '{id}'");
+    assert_eq!(scoped_one::<Decimal>(&pool, company, q("unit_amount")).await, Decimal::from(8));
+    assert_eq!(scoped_one::<Option<Decimal>>(&pool, company, q("billing_rate")).await, Some(Decimal::from(150)));
+    assert_eq!(scoped_one::<Option<Decimal>>(&pool, company, q("costing_rate")).await, Some(Decimal::from(75)));
+    assert_eq!(scoped_one::<Decimal>(&pool, company, q("billable_amount")).await, Decimal::from(1200));
+    assert_eq!(scoped_one::<Decimal>(&pool, company, q("costing_amount")).await, Decimal::from(600));
+
+    // Qualifying write (windows shrink → hours change): 4h re-priced on the SAME rates.
+    let before = fake.calls();
+    let s = req(
+        app.clone(),
+        "PUT",
+        &format!("/timesheets/entries/{id}"),
+        &t,
+        entry_body_with_activity(employee, date, 9, 13, Some(act_a), ""),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "hours-changing update");
+    assert!(fake.calls() > before, "a qualifying write re-consults the rate source");
+    assert_eq!(scoped_one::<Decimal>(&pool, company, q("unit_amount")).await, Decimal::from(4));
+    assert_eq!(scoped_one::<Decimal>(&pool, company, q("billable_amount")).await, Decimal::from(600));
+    assert_eq!(scoped_one::<Decimal>(&pool, company, q("costing_amount")).await, Decimal::from(300));
+
+    // Qualifying write (activity reclassification): rates re-resolve through the port.
+    let s = req(
+        app.clone(),
+        "PUT",
+        &format!("/timesheets/entries/{id}"),
+        &t,
+        entry_body_with_activity(employee, date, 9, 13, Some(act_b), ""),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "activity-changing update");
+    assert_eq!(scoped_one::<Option<Decimal>>(&pool, company, q("billing_rate")).await, Some(Decimal::from(200)));
+    assert_eq!(scoped_one::<Option<Decimal>>(&pool, company, q("costing_rate")).await, Some(Decimal::from(90)));
+    assert_eq!(scoped_one::<Decimal>(&pool, company, q("billable_amount")).await, Decimal::from(800));
+    assert_eq!(scoped_one::<Decimal>(&pool, company, q("costing_amount")).await, Decimal::from(360));
+
+    // NON-qualifying write (remark only, same windows + activity): the snapshot is untouched
+    // and the port is not even consulted.
+    let before = fake.calls();
+    let s = req(
+        app.clone(),
+        "PUT",
+        &format!("/timesheets/entries/{id}"),
+        &t,
+        entry_body_with_activity(employee, date, 9, 13, Some(act_b), ",\"remark\":\"moved note\""),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "remark-only update");
+    assert_eq!(fake.calls(), before, "a non-qualifying write must not re-consult the rate source");
+    assert_eq!(scoped_one::<Option<Decimal>>(&pool, company, q("billing_rate")).await, Some(Decimal::from(200)));
+    assert_eq!(scoped_one::<Decimal>(&pool, company, q("billable_amount")).await, Decimal::from(800));
+
+    // is_billable flip: recomputed from the STORED snapshot, still without re-resolving rates.
+    let before = fake.calls();
+    let s = req(
+        app.clone(),
+        "PUT",
+        &format!("/timesheets/entries/{id}"),
+        &t,
+        entry_body_with_activity(employee, date, 9, 13, Some(act_b), ",\"isBillable\":false"),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK, "billability flip");
+    assert_eq!(fake.calls(), before, "an is_billable flip re-computes from the stored snapshot, not the port");
+    assert_eq!(scoped_one::<Option<Decimal>>(&pool, company, q("billing_rate")).await, Some(Decimal::from(200)));
+    assert_eq!(scoped_one::<Decimal>(&pool, company, q("billable_amount")).await, Decimal::ZERO);
+    assert_eq!(scoped_one::<Decimal>(&pool, company, q("costing_amount")).await, Decimal::from(360));
+
+    // Flipping it back restores the amount from the same stored rate — no repricing happened.
+    let s = req(
+        app,
+        "PUT",
+        &format!("/timesheets/entries/{id}"),
+        &t,
+        entry_body_with_activity(employee, date, 9, 13, Some(act_b), ",\"isBillable\":true"),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(scoped_one::<Decimal>(&pool, company, q("billable_amount")).await, Decimal::from(800));
+    let _ = (y, mo);
+}
+
+// ─── TS-11: plain amounts — no live repricing on reads ────────────────────────
+
+#[tokio::test]
+async fn ts_tsm1_no_live_repricing_read() {
+    let pool = pool().await;
+    let m = module(&pool).await;
+    let act = Uuid::new_v4();
+    m.timesheet_write_service.set_rate_source(std::sync::Arc::new(ActivityRateFake::new(vec![
+        (act, (Decimal::from(150), Decimal::from(75))),
+    ])));
+    let company = Uuid::new_v4();
+    let employee = Uuid::new_v4();
+    let t = token_for(company);
+    let (_, _, date) = prev_month();
+    let app = create_guarded_timesheet_routes(&m);
+
+    let (s, j) = req_full(
+        app.clone(),
+        "POST",
+        "/timesheets/entries",
+        &t,
+        entry_body_with_activity(employee, date, 9, 17, Some(act), ""),
+    )
+    .await;
+    assert_eq!(s, StatusCode::CREATED);
+    let id: Uuid = j.get("id").and_then(|v| v.as_str()).unwrap().parse().unwrap();
+
+    // Swap the rate source for one resolving wildly different rates — an edit of a rate
+    // SOURCE must never reprice existing rows on its own.
+    let swapped = std::sync::Arc::new(FlatRateFake::new(Some(Decimal::from(999)), Some(Decimal::from(888))));
+    m.timesheet_write_service.set_rate_source(swapped.clone());
+
+    // A read returns the STORED snapshot, verbatim.
+    let (s, j) = req_full(app.clone(), "GET", &format!("/timesheets/{id}"), &t, String::new()).await;
+    assert_eq!(s, StatusCode::OK, "entry reads back");
+    let j = j.get("data").cloned().unwrap_or(serde_json::Value::Null); // the read route's envelope
+    assert_eq!(j.get("entryType").and_then(|v| v.as_str()), Some("work"));
+    assert_eq!(dec_from_json(j.get("billingRate").unwrap()), Decimal::from(150));
+    assert_eq!(dec_from_json(j.get("costingRate").unwrap()), Decimal::from(75));
+    assert_eq!(dec_from_json(j.get("billableAmount").unwrap()), Decimal::from(1200));
+    assert_eq!(dec_from_json(j.get("costingAmount").unwrap()), Decimal::from(600));
+    assert_eq!(swapped.calls(), 0, "reads never consult the rate source");
+
+    // A non-qualifying write still keeps the stored snapshot under the swapped source.
+    let s = req(
+        app,
+        "PUT",
+        &format!("/timesheets/entries/{id}"),
+        &t,
+        entry_body_with_activity(employee, date, 9, 17, Some(act), ",\"remark\":\"keep me\""),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    let rate: Option<Decimal> = scoped_one(&pool, company, format!(
+        "SELECT billing_rate FROM timesheet.timesheets WHERE id = '{id}'"
+    )).await;
+    assert_eq!(rate, Some(Decimal::from(150)), "non-qualifying write keeps the snapshot");
+    let amount: Decimal = scoped_one(&pool, company, format!(
+        "SELECT billable_amount FROM timesheet.timesheets WHERE id = '{id}'"
+    )).await;
+    assert_eq!(amount, Decimal::from(1200));
+}
+
+// ─── TS-12: the rate ladder's stages flow through the port ────────────────────
+//
+// The ladder's ORDERING (employee hourly cost > activity-type costing > NULL) is host-adapter
+// territory — the module only consumes the resolved RateSet. What the module CAN and does
+// prove here: each stage's RateSet lands on the row exactly as resolved (employee-stage cost
+// only, activity-stage billing+cost, and nothing resolved = visible NULL rates with 0 amounts).
+
+#[tokio::test]
+async fn ts_rate_ladder() {
+    let pool = pool().await;
+    let m = module(&pool).await;
+    let company = Uuid::new_v4();
+    let employee = Uuid::new_v4();
+    let t = token_for(company);
+    let (_, _, date) = prev_month();
+    let app = create_guarded_timesheet_routes(&m);
+
+    let day = date + Duration::days(0);
+    let body_for = |emp: Uuid, d: NaiveDate| {
+        format!(
+            r#"{{"employeeId":"{emp}","date":"{d}","timeStart":"{}","timeEnd":"{}"}}"#,
+            at(d, 9).to_rfc3339(),
+            at(d, 17).to_rfc3339(),
+        )
+    };
+
+    // Stage 1 — employee hourly cost resolves the cost side only (the hr_timesheet tail:
+    // an employee-cost store carries no billing rate).
+    m.timesheet_write_service
+        .set_rate_source(std::sync::Arc::new(FlatRateFake::new(None, Some(Decimal::from(100)))));
+    let (s, _) = req_full(app.clone(), "POST", "/timesheets/entries", &t, body_for(employee, day)).await;
+    assert_eq!(s, StatusCode::CREATED, "employee-stage entry");
+    let costing: Decimal = scoped_one(&pool, company, format!(
+        "SELECT costing_amount FROM timesheet.timesheets WHERE employee_id = '{employee}' AND date = '{day}'"
+    )).await;
+    assert_eq!(costing, Decimal::from(800), "8h x employee hourly 100");
+    let billing_rate: Option<Decimal> = scoped_one(&pool, company, format!(
+        "SELECT billing_rate FROM timesheet.timesheets WHERE employee_id = '{employee}' AND date = '{day}'"
+    )).await;
+    assert_eq!(billing_rate, None, "employee stage carries no billing rate");
+    let billable: Decimal = scoped_one(&pool, company, format!(
+        "SELECT billable_amount FROM timesheet.timesheets WHERE employee_id = '{employee}' AND date = '{day}'"
+    )).await;
+    assert_eq!(billable, Decimal::ZERO);
+
+    // Stage 2 — the activity-type fallback resolves billing + costing both.
+    let employee2 = Uuid::new_v4();
+    let day2 = date + Duration::days(1);
+    m.timesheet_write_service
+        .set_rate_source(std::sync::Arc::new(FlatRateFake::new(Some(Decimal::from(150)), Some(Decimal::from(60)))));
+    let (s, _) = req_full(app.clone(), "POST", "/timesheets/entries", &t, body_for(employee2, day2)).await;
+    assert_eq!(s, StatusCode::CREATED, "activity-stage entry");
+    let both: (Option<Decimal>, Decimal, Decimal) = scoped_one(&pool, company, format!(
+        "SELECT (billing_rate, billable_amount, costing_amount) FROM timesheet.timesheets WHERE employee_id = '{employee2}' AND date = '{day2}'"
+    )).await;
+    assert_eq!(both, (Some(Decimal::from(150)), Decimal::from(1200), Decimal::from(480)));
+
+    // Stage 3 — nothing resolves: rates visibly NULL, amounts 0.
+    let employee3 = Uuid::new_v4();
+    let day3 = date + Duration::days(2);
+    m.timesheet_write_service.set_rate_source(std::sync::Arc::new(UnwiredRateSource));
+    let (s, _) = req_full(app, "POST", "/timesheets/entries", &t, body_for(employee3, day3)).await;
+    assert_eq!(s, StatusCode::CREATED, "unwired entry creates fine (rates NULL)");
+    let none: (Option<Decimal>, Option<Decimal>, Decimal, Decimal) = scoped_one(&pool, company, format!(
+        "SELECT (billing_rate, costing_rate, billable_amount, costing_amount) FROM timesheet.timesheets WHERE employee_id = '{employee3}' AND date = '{day3}'"
+    )).await;
+    assert_eq!(none, (None, None, Decimal::ZERO, Decimal::ZERO), "visible absence, never an invented rate");
+}
+
+// ─── TS-13: invoiced rows are write-protected (typed error + DB trigger) ──────
+
+#[tokio::test]
+async fn ts_invoiced_write_guard() {
+    let pool = pool().await;
+    let m = module(&pool).await;
+    let company = Uuid::new_v4();
+    let employee = Uuid::new_v4();
+    let t = token_for(company);
+    let (_, _, date) = prev_month();
+    let app = create_guarded_timesheet_routes(&m);
+
+    let (s, j) = req_full(
+        app.clone(),
+        "POST",
+        "/timesheets/entries",
+        &t,
+        entry_body_with_activity(employee, date, 9, 17, None, ",\"hours\":8"),
+    )
+    .await;
+    assert_eq!(s, StatusCode::CREATED);
+    let id: Uuid = j.get("id").and_then(|v| v.as_str()).unwrap().parse().unwrap();
+
+    // The billing exit stamps its one-way link (a cross-module writer, simulated raw).
+    scoped_exec(
+        &pool,
+        company,
+        format!("UPDATE timesheet.timesheets SET invoice_id = '{}' WHERE id = '{id}'", Uuid::new_v4()),
+    )
+    .await
+    .unwrap();
+
+    // Service-level guard: update AND delete refuse with the typed 409.
+    let s = req(
+        app.clone(),
+        "PUT",
+        &format!("/timesheets/entries/{id}"),
+        &t,
+        entry_body_with_activity(employee, date, 9, 17, None, ",\"remark\":\"nope\""),
+    )
+    .await;
+    assert_eq!(s, StatusCode::CONFLICT, "update of an invoiced row must be 409 invoiced_row_locked");
+    let s = req(app.clone(), "DELETE", &format!("/timesheets/entries/{id}"), &t, String::new()).await;
+    assert_eq!(s, StatusCode::CONFLICT, "delete of an invoiced row must be 409 invoiced_row_locked");
+
+    // DB-level backstop: a raw pricing write on the invoiced row raises inside Postgres.
+    let raw = scoped_exec(
+        &pool,
+        company,
+        format!("UPDATE timesheet.timesheets SET unit_amount = 1 WHERE id = '{id}'"),
+    )
+    .await;
+    let err = raw.expect_err("the invoiced-row guard trigger must raise");
+    let msg = err.as_database_error().map(|d| d.message().to_string()).unwrap_or_default();
+    assert!(msg.contains("timesheet_invoiced_row_locked"), "trigger raise, got: {msg}");
+
+    // Clearing the link (the reversal path) stays legal — and re-opens the row for edits.
+    scoped_exec(&pool, company, format!("UPDATE timesheet.timesheets SET invoice_id = NULL WHERE id = '{id}'"))
+        .await
+        .unwrap();
+    let s = req(app, "PUT", &format!("/timesheets/entries/{id}"), &t,
+        entry_body_with_activity(employee, date, 9, 17, None, ",\"remark\":\"re-opened\"")).await;
+    assert_eq!(s, StatusCode::OK, "unbilled row is editable again");
+}
+
+// ─── TS-14: timeoff rows — verb-minted only, readable back ────────────────────
+
+#[tokio::test]
+async fn ts_entry_type_timeoff_writes() {
+    let pool = pool().await;
+    let m = module(&pool).await;
+    let company = Uuid::new_v4();
+    let employee = Uuid::new_v4();
+    let t = token_for(company);
+    let (_, _, date) = prev_month();
+    let app = create_guarded_timesheet_routes(&m);
+
+    // Hand-writing a timeoff row through the guarded surface refuses — leave rows come
+    // exclusively from the regeneration verb off a settled timeoff request.
+    let hand = format!(
+        r#"{{"employeeId":"{employee}","date":"{date}","entryType":"timeoff"}}"#
+    );
+    let s = req(app.clone(), "POST", "/timesheets/entries", &t, hand).await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "hand-written timeoff must be 422");
+
+    // The verb mints them: one day, 8h of absence.
+    let request_id = Uuid::new_v4();
+    let inserted = m
+        .timesheet_write_service
+        .regenerate_leave_rows(&backbone_timesheet::LeaveRowSync {
+            company_id: company,
+            employee_id: employee,
+            timeoff_request_id: request_id,
+            project_id: Uuid::new_v4(),
+            task_id: None,
+            remark: Some("annual leave".into()),
+            entries: vec![backbone_timesheet::LeaveDayEntry { date, hours: Decimal::from(8) }],
+        })
+        .await
+        .expect("leave regeneration");
+    assert_eq!(inserted, 1);
+
+    // The row reads back with its shape: timeoff entry, the origin key, plain hours, no rates.
+    let id: Uuid = scoped_one(&pool, company, format!(
+        "SELECT id FROM timesheet.timesheets WHERE source_timeoff_request_id = '{request_id}' AND (metadata->>'deleted_at') IS NULL"
+    )).await;
+    let (s, j) = req_full(app, "GET", &format!("/timesheets/{id}"), &t, String::new()).await;
+    assert_eq!(s, StatusCode::OK, "leave row reads back");
+    let j = j.get("data").cloned().unwrap_or(serde_json::Value::Null); // the read route's envelope
+    assert_eq!(j.get("entryType").and_then(|v| v.as_str()), Some("timeoff"));
+    assert_eq!(
+        j.get("sourceTimeoffRequestId").and_then(|v| v.as_str()),
+        Some(request_id.to_string().as_str()),
+        "the origin key is part of the read shape"
+    );
+    assert_eq!(dec_from_json(j.get("unitAmount").unwrap()), Decimal::from(8));
+    assert!(j.get("billingRate").map(|v| v.is_null()).unwrap_or(false), "leave rows carry no rates");
+    let shape: (String, Option<Decimal>, Decimal) = scoped_one(&pool, company, format!(
+        "SELECT (entry_type::text, billing_rate, costing_amount) FROM timesheet.timesheets WHERE id = '{id}'"
+    )).await;
+    assert_eq!(shape, ("timeoff".into(), None, Decimal::ZERO));
 }

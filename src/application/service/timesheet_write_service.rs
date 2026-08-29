@@ -1,4 +1,4 @@
-//! `TimesheetWriteService` — the validated entry + period-approval write path (H-6).
+//! `TimesheetWriteService` — the validated analytic-line + period-approval write path.
 //!
 //! Hand-written (user-owned — see `metaphor.codegen.yaml`). Mirrors the proven shapes:
 //! backbone-party v0.3.3's write-service (error enum with `code()`/`http_status()`, tx-per-op
@@ -18,22 +18,43 @@
 //! - **TR2 (mirrors timeoff P1)**: a period linked into the approvals engine is approved only
 //!   by the engine — `approve_period` fails CLOSED when `approval_request_id` is set and the
 //!   port does not return `Approved`.
+//! - **Plain-stored amounts**: `unit_amount`, the rate snapshots, and the amounts are STORED
+//!   columns — no read ever reprices. A write touching any of
+//!   [time_start, time_end, unit_amount, employee_id, activity_type_id] re-resolves rates
+//!   through the [`TimesheetRateSource`](super::rate_source_port::TimesheetRateSource) port and
+//!   synchronously rewrites the snapshots in the SAME transaction; any other write (remark,
+//!   task/project anchoring, date) keeps the stored snapshot. An `is_billable` flip recomputes
+//!   `billable_amount` from the STORED rate snapshot without re-resolving rates.
+//! - **No state on the row**: the row carries no approval of its own — the per-employee/month
+//!   approval cycle (`timesheet_approvals`) is the billability gate. `invoice_id` is a one-way
+//!   link stamped by the billing exit, cleared on reversal.
+//! - **Invoiced-row write guard**: once a row carries `invoice_id`, update and delete refuse
+//!   with a typed error; a DB trigger backstops raw writers. Clearing the link (the reversal
+//!   path) stays legal.
+//! - **Leave regeneration**: delete-and-regenerate off the leave request's origin key —
+//!   authoritative over its OWN rows even in a locked/approved period (the leave lifecycle
+//!   rules those rows), refusing loudly when any carries an invoice link; ordinary rows stay
+//!   under the period lock. The `(company_id, source_timeoff_request_id, date)` partial unique
+//!   is the no-duplicates DB backstop.
 
 use std::sync::{Arc, RwLock};
 
-use chrono::{Datelike, DateTime, Months, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, Months, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use backbone_orm::company_scope;
 
-use crate::infrastructure::persistence::{EntryRow, NewEntry, TimesheetWriteRepository};
+use crate::infrastructure::persistence::{
+    EntryRow, EntrySnapshot, EntryWrite, LeaveRowSync, NewEntry, TimesheetWriteRepository,
+};
 
 use super::approvals_port::{
     TimesheetFiling, TimesheetFilingRequest, TimesheetSeamError, TimesheetVerdict,
     UnwiredTimesheetApprovals,
 };
+use super::rate_source_port::{RateLookup, RateSet, TimesheetRateSource, UnwiredRateSource};
 
 // ─── error surface ────────────────────────────────────────────────────────────
 
@@ -55,6 +76,8 @@ pub enum TimesheetError {
     InvalidRange,
     #[error("entryType must be \"work\" or \"overtime\"")]
     BadEntryType,
+    #[error("explicit hours cannot be negative")]
+    NegativeHours,
     #[error("the period has no live entries to submit")]
     EmptyPeriod,
     /// The submit window: the month is not complete yet.
@@ -63,8 +86,16 @@ pub enum TimesheetError {
     /// TR2: linked into the engine, not granted by it.
     #[error("approval not granted for the linked approval request")]
     ApprovalNotGranted,
+    /// The row carries an invoice link — its pricing/anchoring columns are frozen.
+    #[error("the entry is linked to an invoice — clear the link via the reversal path first")]
+    InvoicedRowLocked,
+    /// Regeneration would rewrite billed absence — a loud operator case, never silent.
+    #[error("the leave request has billed rows — reverse the invoice before regenerating")]
+    LeaveRowBilled,
     #[error("approvals seam: {0}")]
     TimesheetSeam(#[from] TimesheetSeamError),
+    #[error("rate source: {0}")]
+    RateSource(#[from] super::rate_source_port::RateSourceError),
     #[error(transparent)]
     Db(#[from] sqlx::Error),
 }
@@ -79,10 +110,14 @@ impl TimesheetError {
             Self::EntryOverlap => "entry_overlap",
             Self::InvalidRange => "invalid_range",
             Self::BadEntryType => "bad_entry_type",
+            Self::NegativeHours => "negative_hours",
             Self::EmptyPeriod => "empty_period",
             Self::WindowNotOpen => "window_not_open",
             Self::ApprovalNotGranted => "approval_not_granted",
+            Self::InvoicedRowLocked => "invoiced_row_locked",
+            Self::LeaveRowBilled => "leave_row_billed",
             Self::TimesheetSeam(_) => "approvals_seam_error",
+            Self::RateSource(_) => "rate_source_error",
             Self::Db(_) => "database_error",
         }
     }
@@ -91,15 +126,17 @@ impl TimesheetError {
         match self {
             Self::NotFound(_) => 404,
             Self::PeriodLocked | Self::PeriodAlreadySubmitted | Self::NotPending
-            | Self::EntryOverlap | Self::ApprovalNotGranted => 409,
-            Self::InvalidRange | Self::BadEntryType | Self::EmptyPeriod
+            | Self::EntryOverlap | Self::ApprovalNotGranted | Self::InvoicedRowLocked
+            | Self::LeaveRowBilled => 409,
+            Self::InvalidRange | Self::BadEntryType | Self::NegativeHours | Self::EmptyPeriod
             | Self::WindowNotOpen => 422,
-            Self::TimesheetSeam(_) | Self::Db(_) => 500,
+            Self::TimesheetSeam(_) | Self::RateSource(_) | Self::Db(_) => 500,
         }
     }
 }
 
-/// The entry as returned over HTTP (camelCase, all the mutable columns back).
+/// The entry as returned over HTTP (camelCase, every stored column back — the
+/// plain-stored snapshots included, read as stored, never recomputed).
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TimesheetEntryDto {
@@ -112,6 +149,16 @@ pub struct TimesheetEntryDto {
     pub time_start: Option<DateTime<Utc>>,
     pub time_end: Option<DateTime<Utc>>,
     pub entry_type: crate::domain::entity::TimesheetType,
+    pub unit_amount: Decimal,
+    pub currency: String,
+    pub activity_type_id: Option<Uuid>,
+    pub billing_rate: Option<Decimal>,
+    pub costing_rate: Option<Decimal>,
+    pub is_billable: bool,
+    pub billable_amount: Decimal,
+    pub costing_amount: Decimal,
+    pub invoice_id: Option<Uuid>,
+    pub source_timeoff_request_id: Option<Uuid>,
 }
 
 impl From<EntryRow> for TimesheetEntryDto {
@@ -126,6 +173,16 @@ impl From<EntryRow> for TimesheetEntryDto {
             time_start: e.time_start,
             time_end: e.time_end,
             entry_type: e.entry_type,
+            unit_amount: e.unit_amount,
+            currency: e.currency,
+            activity_type_id: e.activity_type_id,
+            billing_rate: e.billing_rate,
+            costing_rate: e.costing_rate,
+            is_billable: e.is_billable,
+            billable_amount: e.billable_amount,
+            costing_amount: e.costing_amount,
+            invoice_id: e.invoice_id,
+            source_timeoff_request_id: e.source_timeoff_request_id,
         }
     }
 }
@@ -134,6 +191,35 @@ impl From<EntryRow> for TimesheetEntryDto {
 pub fn last_day_of_month(year: i32, month: i32) -> Option<NaiveDate> {
     let first = NaiveDate::from_ymd_opt(year, month.clamp(1, 12) as u32, 1)?;
     first.checked_add_months(Months::new(1))?.pred_opt()
+}
+
+/// Hours from a time window, plain-stored to 2dp (round half away from zero — the
+/// ecosystem's money rounding). Pure. `None` when either bound is absent.
+fn hours_from_windows(
+    time_start: Option<DateTime<Utc>>,
+    time_end: Option<DateTime<Utc>>,
+) -> Option<Decimal> {
+    let (s, e) = (time_start?, time_end?);
+    let secs = (e - s).num_seconds();
+    Some(Decimal::from(secs) / Decimal::from(3600)).map(|h| h.round_dp(2))
+}
+
+/// The plain-stored amounts derived from hours + the resolved/kept rate snapshots.
+/// A NULL rate means "rate unknown": the matching amount is 0 — a visible absence
+/// in the rate column, never an invented figure.
+fn amounts_from(
+    unit_amount: Decimal,
+    is_billable: bool,
+    billing_rate: Option<Decimal>,
+    costing_rate: Option<Decimal>,
+) -> (Decimal, Decimal) {
+    let billable = if is_billable {
+        billing_rate.map(|r| (unit_amount * r).round_dp(2)).unwrap_or(Decimal::ZERO)
+    } else {
+        Decimal::ZERO
+    };
+    let costing = costing_rate.map(|r| (unit_amount * r).round_dp(2)).unwrap_or(Decimal::ZERO);
+    (billable, costing)
 }
 
 // ─── the service ──────────────────────────────────────────────────────────────
@@ -146,6 +232,10 @@ pub struct TimesheetWriteService {
     /// RwLock (not tokio's) because reads are cloned-and-dropped with no await while held, and
     /// the one write happens at composition time, before serving.
     approvals: RwLock<Arc<dyn TimesheetFiling>>,
+    /// The rate-source seam. Defaults to [`UnwiredRateSource`] (resolves nothing — rates stay
+    /// NULL, amounts 0) until the host composes an adapter over project activity types and the
+    /// employee hourly-cost store.
+    rates: RwLock<Arc<dyn TimesheetRateSource>>,
 }
 
 impl TimesheetWriteService {
@@ -154,6 +244,7 @@ impl TimesheetWriteService {
             pool,
             repo: TimesheetWriteRepository,
             approvals: RwLock::new(Arc::new(UnwiredTimesheetApprovals)),
+            rates: RwLock::new(Arc::new(UnwiredRateSource)),
         }
     }
 
@@ -168,6 +259,35 @@ impl TimesheetWriteService {
         self.approvals.read().expect("approvals port lock poisoned").clone()
     }
 
+    /// Wire the rate-source port (the composing app's adapter over
+    /// `project.activity_types` + employee hourly cost). Call once at composition time.
+    /// After this, qualifying writes snapshot resolved rates onto the row.
+    pub fn set_rate_source(&self, port: Arc<dyn TimesheetRateSource>) {
+        *self.rates.write().expect("rate source lock poisoned") = port;
+    }
+
+    fn rates(&self) -> Arc<dyn TimesheetRateSource> {
+        self.rates.read().expect("rate source lock poisoned").clone()
+    }
+
+    /// Resolve rates through the port for a qualifying write. The lookup's employee is the
+    /// ROW's employee (the resolution — there is no fallback ladder to port).
+    async fn resolve_rates(
+        &self,
+        company: Uuid,
+        employee_id: Uuid,
+        activity_type_id: Option<Uuid>,
+    ) -> Result<RateSet, TimesheetError> {
+        self.rates()
+            .resolve_rates(&RateLookup {
+                company_id: company,
+                employee_id: Some(employee_id),
+                activity_type_id,
+            })
+            .await
+            .map_err(TimesheetError::RateSource)
+    }
+
     // ─── entries (locked while the period is pending/approved) ────────────────
 
     pub async fn create_entry(
@@ -176,17 +296,53 @@ impl TimesheetWriteService {
         e: NewEntry,
     ) -> Result<TimesheetEntryDto, TimesheetError> {
         validate_entry_bounds(e.time_start, e.time_end)?;
-        let now = Utc::now();
+        if let Some(h) = e.hours {
+            if h < Decimal::ZERO {
+                return Err(TimesheetError::NegativeHours);
+            }
+        }
+        // Plain-stored hours: the windows win when both bounds are present; else the explicit
+        // hours input; else 0 (honest absence — hours are not invented).
+        let unit_amount = hours_from_windows(e.time_start, e.time_end)
+            .or(e.hours.map(|h| h.round_dp(2)))
+            .unwrap_or(Decimal::ZERO);
+        let is_billable = e.is_billable.unwrap_or(true);
 
         let mut tx = self.pool.begin().await?;
         company_scope::bind_company_on(&mut tx, company).await?;
         self.assert_period_open(&mut tx, company, e.employee_id, e.date).await?;
 
+        // A create is a qualifying write by definition: resolve rates through the port and
+        // stamp the snapshots in the same transaction (employee resolution IS the row's
+        // employee_id — no ladder).
+        let rates = self
+            .resolve_rates(company, e.employee_id, e.activity_type_id)
+            .await?;
+        let (billable_amount, costing_amount) =
+            amounts_from(unit_amount, is_billable, rates.billing_rate, rates.costing_rate);
+
+        let w = EntryWrite {
+            project_id: e.project_id,
+            task_id: e.task_id,
+            date: e.date,
+            remark: e.remark.clone(),
+            time_start: e.time_start,
+            time_end: e.time_end,
+            entry_type: e.entry_type,
+            unit_amount,
+            activity_type_id: e.activity_type_id,
+            billing_rate: rates.billing_rate,
+            costing_rate: rates.costing_rate,
+            is_billable,
+            billable_amount,
+            costing_amount,
+        };
+
         let row = self
             .repo
-            .insert_entry(&mut tx, company, &e, now)
+            .insert_entry(&mut tx, company, e.employee_id, &w, Utc::now())
             .await
-            .map_err(map_overlap)?;
+            .map_err(map_entry_write_error)?;
         tx.commit().await?;
         Ok(row.into())
     }
@@ -198,6 +354,11 @@ impl TimesheetWriteService {
         e: NewEntry,
     ) -> Result<TimesheetEntryDto, TimesheetError> {
         validate_entry_bounds(e.time_start, e.time_end)?;
+        if let Some(h) = e.hours {
+            if h < Decimal::ZERO {
+                return Err(TimesheetError::NegativeHours);
+            }
+        }
         let now = Utc::now();
 
         let mut tx = self.pool.begin().await?;
@@ -207,19 +368,66 @@ impl TimesheetWriteService {
         // caller can't move hours OUT of a frozen period by re-dating them into an open one.
         // The row's employee is authoritative for BOTH checks; the payload's employee_id is
         // not written by the update and must not widen the lock lookup.
-        let (row_employee, row_year, row_month) = self
+        let snap: EntrySnapshot = self
             .repo
-            .entry_period(&mut tx, company, entry_id)
+            .entry_snapshot(&mut tx, company, entry_id)
             .await?
             .ok_or(TimesheetError::NotFound("timesheet entry"))?;
-        self.assert_period_open_ym(&mut tx, company, row_employee, row_year, row_month).await?;
-        self.assert_period_open(&mut tx, company, row_employee, e.date).await?;
+        // Invoiced rows are frozen (a link, not a state — but it writes like one): the
+        // reversal path clears the link first; a DB trigger backstops raw writers.
+        if snap.invoice_id.is_some() {
+            return Err(TimesheetError::InvoicedRowLocked);
+        }
+        self.assert_period_open_ym(&mut tx, company, snap.employee_id, snap.year, snap.month)
+            .await?;
+        self.assert_period_open(&mut tx, company, snap.employee_id, e.date).await?;
+
+        // Plain-stored hours: windows win; else explicit input; else the row KEEPS its hours
+        // (a remark-only edit must not zero a duration-only row).
+        let unit_amount = hours_from_windows(e.time_start, e.time_end)
+            .or(e.hours.map(|h| h.round_dp(2)))
+            .unwrap_or(snap.unit_amount);
+
+        // Reprice only on a qualifying write: a change to the hours figure, the windows, or
+        // the activity classification (employee_id is not writable on update — when a future
+        // write path can move it, it joins this set). Everything else keeps the snapshot.
+        let qualifying = snap.time_start != e.time_start
+            || snap.time_end != e.time_end
+            || unit_amount != snap.unit_amount
+            || snap.activity_type_id != e.activity_type_id;
+        let rates = if qualifying {
+            self.resolve_rates(company, snap.employee_id, e.activity_type_id).await?
+        } else {
+            RateSet { billing_rate: snap.billing_rate, costing_rate: snap.costing_rate }
+        };
+        // An is_billable flip recomputes from the STORED (or just re-resolved) snapshot —
+        // never re-resolves rates on its own.
+        let is_billable = e.is_billable.unwrap_or(snap.is_billable);
+        let (billable_amount, costing_amount) =
+            amounts_from(unit_amount, is_billable, rates.billing_rate, rates.costing_rate);
+
+        let w = EntryWrite {
+            project_id: e.project_id,
+            task_id: e.task_id,
+            date: e.date,
+            remark: e.remark.clone(),
+            time_start: e.time_start,
+            time_end: e.time_end,
+            entry_type: e.entry_type,
+            unit_amount,
+            activity_type_id: e.activity_type_id,
+            billing_rate: rates.billing_rate,
+            costing_rate: rates.costing_rate,
+            is_billable,
+            billable_amount,
+            costing_amount,
+        };
 
         let row = self
             .repo
-            .update_entry(&mut tx, company, entry_id, &e, now)
+            .update_entry(&mut tx, company, entry_id, &w, now)
             .await
-            .map_err(map_overlap)?
+            .map_err(map_entry_write_error)?
             .ok_or(TimesheetError::NotFound("timesheet entry"))?;
         tx.commit().await?;
         Ok(row.into())
@@ -231,13 +439,18 @@ impl TimesheetWriteService {
         let mut tx = self.pool.begin().await?;
         company_scope::bind_company_on(&mut tx, company).await?;
         // The lock is per (employee, year, month) — read it off the entry itself so a caller
-        // can't mutate around the lock by omitting the period.
-        let (employee_id, year, month) = self
+        // can't mutate around the lock by omitting the period. An invoiced row refuses:
+        // billed hours are corrected by reversal, never deleted out from under the invoice.
+        let snap = self
             .repo
-            .entry_period(&mut tx, company, entry_id)
+            .entry_snapshot(&mut tx, company, entry_id)
             .await?
             .ok_or(TimesheetError::NotFound("timesheet entry"))?;
-        self.assert_period_open_ym(&mut tx, company, employee_id, year, month).await?;
+        if snap.invoice_id.is_some() {
+            return Err(TimesheetError::InvoicedRowLocked);
+        }
+        self.assert_period_open_ym(&mut tx, company, snap.employee_id, snap.year, snap.month)
+            .await?;
 
         let deleted = self.repo.soft_delete_entry(&mut tx, company, entry_id, now).await?;
         if !deleted {
@@ -246,6 +459,52 @@ impl TimesheetWriteService {
         }
         tx.commit().await?;
         Ok(())
+    }
+
+    // ─── leave regeneration (authoritative over its OWN rows) ─────────────────
+
+    /// Delete-and-regenerate the timesheet rows mirroring one leave request's settled window
+    /// (approve/refuse/cancel/void all converge here — the caller maps the settlement to the
+    /// day-by-day hours it wants reflected; refused/cancelled/voided requests regenerate to
+    /// zero rows, i.e. just the delete). Never updates in place: rows are soft-deleted by
+    /// origin key and re-inserted per day, inside ONE transaction.
+    ///
+    /// Authoritative over its OWN rows even in a locked/approved period — the leave lifecycle
+    /// rules those rows; ordinary rows in the same period stay frozen under the period lock.
+    /// Refuses loudly when any of the request's rows already carried an invoice link (billed
+    /// absence is corrected by reversing the invoice first). The partial unique
+    /// `(company_id, source_timeoff_request_id, date)` among live rows is the DB backstop
+    /// making duplicates impossible. Leave rows carry `entry_type='timeoff'`, NULL rates and
+    /// zero amounts (no rate source applies to absence).
+    ///
+    /// Returns the number of rows inserted.
+    pub async fn regenerate_leave_rows(&self, sync: &LeaveRowSync) -> Result<u32, TimesheetError> {
+        let now = Utc::now();
+        let mut tx = self.pool.begin().await?;
+        company_scope::bind_company_on(&mut tx, sync.company_id).await?;
+
+        let billed = self
+            .repo
+            .count_billed_leave_rows(&mut tx, sync.company_id, sync.timeoff_request_id)
+            .await?;
+        if billed > 0 {
+            return Err(TimesheetError::LeaveRowBilled);
+        }
+
+        self.repo
+            .soft_delete_leave_rows(&mut tx, sync.company_id, sync.timeoff_request_id, now)
+            .await?;
+
+        let mut inserted = 0u32;
+        for day in &sync.entries {
+            if day.hours < Decimal::ZERO {
+                return Err(TimesheetError::NegativeHours);
+            }
+            self.repo.insert_leave_row(&mut tx, sync, day, now).await?;
+            inserted += 1;
+        }
+        tx.commit().await?;
+        Ok(inserted)
     }
 
     // ─── period cycle: submit → approve / reject ───────────────────────────────
@@ -457,15 +716,17 @@ fn validate_entry_bounds(
     Ok(())
 }
 
-/// Map a DB error carrying the entries EXCLUDE constraint (23P01) to the 409 the API promises.
-fn map_overlap(e: sqlx::Error) -> TimesheetError {
-    let hit = e
-        .as_database_error()
-        .map(|d| d.constraint().map(|c| c.contains("no_overlap")).unwrap_or(false))
-        .unwrap_or(false);
-    if hit {
-        TimesheetError::EntryOverlap
-    } else {
-        TimesheetError::Db(e)
+/// Map a DB error from the entry write path to the typed API error: the entries EXCLUDE
+/// constraint (23P01) to the 409 overlap, and the invoiced-row guard trigger (which only a
+/// racing stamp or a raw writer can trip — the service refuses earlier) to the 409 lock.
+fn map_entry_write_error(e: sqlx::Error) -> TimesheetError {
+    if let Some(db) = e.as_database_error() {
+        if db.constraint().map(|c| c.contains("no_overlap")).unwrap_or(false) {
+            return TimesheetError::EntryOverlap;
+        }
+        if db.message().contains("timesheet_invoiced_row_locked") {
+            return TimesheetError::InvoicedRowLocked;
+        }
     }
+    TimesheetError::Db(e)
 }

@@ -13,10 +13,17 @@
 user_owned:
   # The approvals seam (H-6, mirrors timeoff P1's port): TimesheetFiling trait + Unwired default.
   - "src/application/service/approvals_port.rs"
+  # The rate-source seam: TimesheetRateSource trait + Unwired default (resolves nothing —
+  # rates stay NULL until the host wires an adapter over project activity types + employee
+  # hourly cost).
+  - "src/application/service/rate_source_port.rs"
   # The validated write path (H-6): entries under the period lock, submit validation window,
-  # period transitions, EXCLUDE-overlap 23P01 → 409 mapping, TR2 fail-closed approve.
+  # period transitions, EXCLUDE-overlap 23P01 → 409 mapping, TR2 fail-closed approve;
+  # plain-stored amounts with reprice-on-qualifying-write, invoiced-row write guard,
+  # leave regeneration (delete-and-regenerate off the origin key).
   - "src/application/service/timesheet_write_service.rs"
-  # All hand-written write SQL for that service (entries, period rows, hours aggregate).
+  # All hand-written write SQL for that service (entries, period rows, hours aggregate,
+  # leave regeneration).
   - "src/infrastructure/persistence/timesheet_write_repository.rs"
   # Guarded composition: validated entry/period writes + safe reads, no generic mutation.
   - "src/presentation/http/guarded_routes.rs"
@@ -30,8 +37,23 @@ user_owned:
   # Route-level integrity probes (W1 P2): real company_auth + HS256 token, oneshot router,
   # RLS-fenced assertion reads via with_company_scope. Covers entry overlap → 409, the period
   # lock, the submit validation window, reject-revive cycles, TR2 fail-closed approvals seam,
-  # cross-company fence, unauthenticated 401.
+  # cross-company fence, unauthenticated 401; the analytic-line probes add plain-amount
+  # repricing rules, the rate ladder stages, the invoiced-row write guard, and timeoff writes.
   - "tests/integrity_probes.rs"
+  # Leave-regeneration probes: delete-and-regenerate off a timeoff request, no duplicates
+  # (partial-unique backstop), authoritative over its own rows in a locked period, refusal
+  # on billed rows.
+  - "tests/leave_sync_probes.rs"
+
+  # The analytic-row convergence migration: the ten additive columns (plain-stored amounts,
+  # rate snapshots, invoice link, timeoff origin key) with guarded CHECKs and the hours
+  # backfill — hand-owned because the generator rewrites table migrations only on entity
+  # regen, not as data-bearing ALTERs.
+  - "migrations/20260829110000_analytic_row_convergence.up.sql"
+  - "migrations/20260829110000_analytic_row_convergence.down.sql"
+  # Enforcement declarations the schema tree does not derive: the ranged-entries no-overlap
+  # backstop, the one-live-leave-row-per-day partial unique, the invoiced-row write guard.
+  - "schema/hooks/timesheet.hook.yaml"
 
   # Hand-authored module documentation.
   - "docs/**"

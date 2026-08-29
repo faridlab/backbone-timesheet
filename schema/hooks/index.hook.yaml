@@ -10,6 +10,7 @@ version: 2
 # Import all hook files.
 imports:
   - example.hook.yaml
+  - timesheet.hook.yaml
 
 # =============================================================================
 # Module-level configuration

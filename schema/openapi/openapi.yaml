@@ -761,6 +761,11 @@ components:
         - month
         - date
         - entry_type
+        - unit_amount
+        - currency
+        - is_billable
+        - billable_amount
+        - costing_amount
         - metadata
       properties:
         id:
@@ -802,6 +807,34 @@ components:
           format: date-time
         entry_type:
           type: string
+        unit_amount:
+          type: string
+        currency:
+          type: string
+        activity_type_id:
+          nullable: true
+          type: string
+          format: uuid
+        billing_rate:
+          nullable: true
+          type: string
+        costing_rate:
+          nullable: true
+          type: string
+        is_billable:
+          type: boolean
+        billable_amount:
+          type: string
+        costing_amount:
+          type: string
+        invoice_id:
+          nullable: true
+          type: string
+          format: uuid
+        source_timeoff_request_id:
+          nullable: true
+          type: string
+          format: uuid
         metadata:
           type: object
 
@@ -827,6 +860,11 @@ components:
         - month
         - date
         - entry_type
+        - unit_amount
+        - currency
+        - is_billable
+        - billable_amount
+        - costing_amount
         - metadata
       properties:
         company_id:
@@ -865,6 +903,34 @@ components:
           format: date-time
         entry_type:
           type: string
+        unit_amount:
+          type: string
+        currency:
+          type: string
+        activity_type_id:
+          nullable: true
+          type: string
+          format: uuid
+        billing_rate:
+          nullable: true
+          type: string
+        costing_rate:
+          nullable: true
+          type: string
+        is_billable:
+          type: boolean
+        billable_amount:
+          type: string
+        costing_amount:
+          type: string
+        invoice_id:
+          nullable: true
+          type: string
+          format: uuid
+        source_timeoff_request_id:
+          nullable: true
+          type: string
+          format: uuid
         metadata:
           type: object
 
@@ -877,6 +943,11 @@ components:
         - month
         - date
         - entry_type
+        - unit_amount
+        - currency
+        - is_billable
+        - billable_amount
+        - costing_amount
         - metadata
       properties:
         company_id:
@@ -915,6 +986,34 @@ components:
           format: date-time
         entry_type:
           type: string
+        unit_amount:
+          type: string
+        currency:
+          type: string
+        activity_type_id:
+          nullable: true
+          type: string
+          format: uuid
+        billing_rate:
+          nullable: true
+          type: string
+        costing_rate:
+          nullable: true
+          type: string
+        is_billable:
+          type: boolean
+        billable_amount:
+          type: string
+        costing_amount:
+          type: string
+        invoice_id:
+          nullable: true
+          type: string
+          format: uuid
+        source_timeoff_request_id:
+          nullable: true
+          type: string
+          format: uuid
         metadata:
           type: object
 
@@ -957,6 +1056,34 @@ components:
           format: date-time
         entry_type:
           type: string
+        unit_amount:
+          type: string
+        currency:
+          type: string
+        activity_type_id:
+          nullable: true
+          type: string
+          format: uuid
+        billing_rate:
+          nullable: true
+          type: string
+        costing_rate:
+          nullable: true
+          type: string
+        is_billable:
+          type: boolean
+        billable_amount:
+          type: string
+        costing_amount:
+          type: string
+        invoice_id:
+          nullable: true
+          type: string
+          format: uuid
+        source_timeoff_request_id:
+          nullable: true
+          type: string
+          format: uuid
         metadata:
           type: object
 

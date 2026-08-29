@@ -187,4 +187,3 @@ pub fn create_protected_timesheet_approval_routes<A: AuthMiddleware + Send + Syn
             }
         }))
 }
-

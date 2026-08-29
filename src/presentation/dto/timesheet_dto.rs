@@ -8,6 +8,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use chrono::{DateTime, Utc, NaiveDate};
+use rust_decimal::Decimal;
 
 #[cfg(feature = "openapi")]
 #[cfg(feature = "openapi")]
@@ -57,6 +58,27 @@ pub struct CreateTimesheetDto {
     pub time_end: Option<DateTime<Utc>>,
     #[serde(alias = "entry_type")]
     pub entry_type: TimesheetType,
+    #[serde(alias = "unit_amount")]
+    pub unit_amount: Decimal,
+    #[cfg_attr(feature = "openapi", schema(example = "example"))]
+    pub currency: String,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "activity_type_id")]
+    pub activity_type_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "billing_rate")]
+    pub billing_rate: Option<Decimal>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "costing_rate")]
+    pub costing_rate: Option<Decimal>,
+    #[cfg_attr(feature = "openapi", schema(example = true))]
+    #[serde(alias = "is_billable")]
+    pub is_billable: bool,
+    #[serde(alias = "billable_amount")]
+    pub billable_amount: Decimal,
+    #[serde(alias = "costing_amount")]
+    pub costing_amount: Decimal,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "invoice_id")]
+    pub invoice_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "source_timeoff_request_id")]
+    pub source_timeoff_request_id: Option<Uuid>,
 }
 
 // =============================================================================
@@ -96,6 +118,27 @@ pub struct UpdateTimesheetDto {
     pub time_end: Option<DateTime<Utc>>,
     #[serde(alias = "entry_type")]
     pub entry_type: TimesheetType,
+    #[serde(alias = "unit_amount")]
+    pub unit_amount: Decimal,
+    #[cfg_attr(feature = "openapi", schema(example = "example"))]
+    pub currency: String,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "activity_type_id")]
+    pub activity_type_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "billing_rate")]
+    pub billing_rate: Option<Decimal>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "costing_rate")]
+    pub costing_rate: Option<Decimal>,
+    #[cfg_attr(feature = "openapi", schema(example = true))]
+    #[serde(alias = "is_billable")]
+    pub is_billable: bool,
+    #[serde(alias = "billable_amount")]
+    pub billable_amount: Decimal,
+    #[serde(alias = "costing_amount")]
+    pub costing_amount: Decimal,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "invoice_id")]
+    pub invoice_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none", alias = "source_timeoff_request_id")]
+    pub source_timeoff_request_id: Option<Uuid>,
 }
 
 // =============================================================================
@@ -138,12 +181,34 @@ pub struct PatchTimesheetDto {
     pub time_end: Option<DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "entry_type")]
     pub entry_type: Option<TimesheetType>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "unit_amount")]
+    pub unit_amount: Option<Decimal>,
+    #[cfg_attr(feature = "openapi", schema(example = "example"))]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub currency: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "activity_type_id")]
+    pub activity_type_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "billing_rate")]
+    pub billing_rate: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "costing_rate")]
+    pub costing_rate: Option<Decimal>,
+    #[cfg_attr(feature = "openapi", schema(example = true))]
+    #[serde(skip_serializing_if = "Option::is_none", alias = "is_billable")]
+    pub is_billable: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "billable_amount")]
+    pub billable_amount: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "costing_amount")]
+    pub costing_amount: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "invoice_id")]
+    pub invoice_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "source_timeoff_request_id")]
+    pub source_timeoff_request_id: Option<Uuid>,
 }
 
 impl PatchTimesheetDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.employee_id.is_some() || self.project_id.is_some() || self.task_id.is_some() || self.year.is_some() || self.month.is_some() || self.date.is_some() || self.remark.is_some() || self.time_start.is_some() || self.time_end.is_some() || self.entry_type.is_some()
+        self.company_id.is_some() || self.employee_id.is_some() || self.project_id.is_some() || self.task_id.is_some() || self.year.is_some() || self.month.is_some() || self.date.is_some() || self.remark.is_some() || self.time_start.is_some() || self.time_end.is_some() || self.entry_type.is_some() || self.unit_amount.is_some() || self.currency.is_some() || self.activity_type_id.is_some() || self.billing_rate.is_some() || self.costing_rate.is_some() || self.is_billable.is_some() || self.billable_amount.is_some() || self.costing_amount.is_some() || self.invoice_id.is_some() || self.source_timeoff_request_id.is_some()
     }
 }
 
@@ -177,6 +242,18 @@ pub struct TimesheetResponseDto {
     pub time_start: Option<DateTime<Utc>>,
     pub time_end: Option<DateTime<Utc>>,
     pub entry_type: TimesheetType,
+    pub unit_amount: Decimal,
+    #[cfg_attr(feature = "openapi", schema(example = "example"))]
+    pub currency: String,
+    pub activity_type_id: Option<Uuid>,
+    pub billing_rate: Option<Decimal>,
+    pub costing_rate: Option<Decimal>,
+    #[cfg_attr(feature = "openapi", schema(example = true))]
+    pub is_billable: bool,
+    pub billable_amount: Decimal,
+    pub costing_amount: Decimal,
+    pub invoice_id: Option<Uuid>,
+    pub source_timeoff_request_id: Option<Uuid>,
     pub metadata: AuditMetadata,
 }
 
@@ -259,6 +336,16 @@ impl From<Timesheet> for TimesheetResponseDto {
             time_start: entity.time_start,
             time_end: entity.time_end,
             entry_type: entity.entry_type,
+            unit_amount: entity.unit_amount,
+            currency: entity.currency,
+            activity_type_id: entity.activity_type_id,
+            billing_rate: entity.billing_rate,
+            costing_rate: entity.costing_rate,
+            is_billable: entity.is_billable,
+            billable_amount: entity.billable_amount,
+            costing_amount: entity.costing_amount,
+            invoice_id: entity.invoice_id,
+            source_timeoff_request_id: entity.source_timeoff_request_id,
             metadata: entity.metadata,
         }
     }
@@ -292,6 +379,16 @@ impl From<CreateTimesheetDto> for Timesheet {
             time_start: dto.time_start,
             time_end: dto.time_end,
             entry_type: dto.entry_type,
+            unit_amount: dto.unit_amount,
+            currency: dto.currency,
+            activity_type_id: dto.activity_type_id,
+            billing_rate: dto.billing_rate,
+            costing_rate: dto.costing_rate,
+            is_billable: dto.is_billable,
+            billable_amount: dto.billable_amount,
+            costing_amount: dto.costing_amount,
+            invoice_id: dto.invoice_id,
+            source_timeoff_request_id: dto.source_timeoff_request_id,
             metadata: AuditMetadata::default(),
         }
     }
@@ -312,6 +409,16 @@ impl From<&Timesheet> for TimesheetResponseDto {
             time_start: entity.time_start.clone(),
             time_end: entity.time_end.clone(),
             entry_type: entity.entry_type.clone(),
+            unit_amount: entity.unit_amount.clone(),
+            currency: entity.currency.clone(),
+            activity_type_id: entity.activity_type_id.clone(),
+            billing_rate: entity.billing_rate.clone(),
+            costing_rate: entity.costing_rate.clone(),
+            is_billable: entity.is_billable.clone(),
+            billable_amount: entity.billable_amount.clone(),
+            costing_amount: entity.costing_amount.clone(),
+            invoice_id: entity.invoice_id.clone(),
+            source_timeoff_request_id: entity.source_timeoff_request_id.clone(),
             metadata: entity.metadata.clone(),
         }
     }
@@ -336,6 +443,16 @@ impl backbone_core::ApplyUpdateDto<UpdateTimesheetDto> for Timesheet {
         self.time_start = dto.time_start;
         self.time_end = dto.time_end;
         self.entry_type = dto.entry_type;
+        self.unit_amount = dto.unit_amount;
+        self.currency = dto.currency;
+        self.activity_type_id = dto.activity_type_id;
+        self.billing_rate = dto.billing_rate;
+        self.costing_rate = dto.costing_rate;
+        self.is_billable = dto.is_billable;
+        self.billable_amount = dto.billable_amount;
+        self.costing_amount = dto.costing_amount;
+        self.invoice_id = dto.invoice_id;
+        self.source_timeoff_request_id = dto.source_timeoff_request_id;
         Ok(self)
     }
 }
@@ -348,4 +465,3 @@ impl backbone_core::ApplyUpdateDto<UpdateTimesheetDto> for Timesheet {
 // Add custom DTOs specific to Timesheet here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
-

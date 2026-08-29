@@ -6,7 +6,7 @@
 //! field rules. Extend in the `// <<< CUSTOM` zone.
 
 use backbone_core::{EntityValidator, ValidationErrors, ValidationError};
-use backbone_core::{OptionalNotBlank};
+use backbone_core::{NonNegative, OptionalNotBlank, RequiredString};
 use crate::domain::entity::Timesheet;
 
 /// Validator type alias for Timesheet entities.
@@ -16,6 +16,7 @@ pub type TimesheetValidator = EntityValidator<Timesheet>;
 pub fn timesheet_validator() -> TimesheetValidator {
     EntityValidator::new()
         .rule(OptionalNotBlank::new("remark", |e: &Timesheet| e.remark.as_deref()))
+        .rule(RequiredString::new("currency", |e: &Timesheet| &e.currency))
     // <<< CUSTOM RULES
     // END CUSTOM RULES
 }

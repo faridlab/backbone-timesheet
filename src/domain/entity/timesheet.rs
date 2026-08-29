@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc, NaiveDate};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
+use rust_decimal::Decimal;
 
 use super::TimesheetType;
 use super::AuditMetadata;
@@ -61,6 +62,16 @@ pub struct Timesheet {
     pub time_start: Option<DateTime<Utc>>,
     pub time_end: Option<DateTime<Utc>>,
     pub entry_type: TimesheetType,
+    pub unit_amount: Decimal,
+    pub currency: String,
+    pub activity_type_id: Option<Uuid>,
+    pub billing_rate: Option<Decimal>,
+    pub costing_rate: Option<Decimal>,
+    pub is_billable: bool,
+    pub billable_amount: Decimal,
+    pub costing_amount: Decimal,
+    pub invoice_id: Option<Uuid>,
+    pub source_timeoff_request_id: Option<Uuid>,
     #[serde(default)]
     #[sqlx(json)]
     pub metadata: AuditMetadata,
@@ -73,7 +84,7 @@ impl Timesheet {
     }
 
     /// Create a new Timesheet with required fields
-    pub fn new(company_id: Uuid, employee_id: Uuid, year: i32, month: i32, date: NaiveDate, entry_type: TimesheetType) -> Self {
+    pub fn new(company_id: Uuid, employee_id: Uuid, year: i32, month: i32, date: NaiveDate, entry_type: TimesheetType, unit_amount: Decimal, currency: String, is_billable: bool, billable_amount: Decimal, costing_amount: Decimal) -> Self {
         Self {
             id: Uuid::new_v4(),
             company_id,
@@ -87,6 +98,16 @@ impl Timesheet {
             time_start: None,
             time_end: None,
             entry_type,
+            unit_amount,
+            currency,
+            activity_type_id: None,
+            billing_rate: None,
+            costing_rate: None,
+            is_billable,
+            billable_amount,
+            costing_amount,
+            invoice_id: None,
+            source_timeoff_request_id: None,
             metadata: AuditMetadata::default(),
         }
     }
@@ -176,6 +197,36 @@ impl Timesheet {
         self
     }
 
+    /// Set the activity_type_id field (chainable)
+    pub fn with_activity_type_id(mut self, value: Uuid) -> Self {
+        self.activity_type_id = Some(value);
+        self
+    }
+
+    /// Set the billing_rate field (chainable)
+    pub fn with_billing_rate(mut self, value: Decimal) -> Self {
+        self.billing_rate = Some(value);
+        self
+    }
+
+    /// Set the costing_rate field (chainable)
+    pub fn with_costing_rate(mut self, value: Decimal) -> Self {
+        self.costing_rate = Some(value);
+        self
+    }
+
+    /// Set the invoice_id field (chainable)
+    pub fn with_invoice_id(mut self, value: Uuid) -> Self {
+        self.invoice_id = Some(value);
+        self
+    }
+
+    /// Set the source_timeoff_request_id field (chainable)
+    pub fn with_source_timeoff_request_id(mut self, value: Uuid) -> Self {
+        self.source_timeoff_request_id = Some(value);
+        self
+    }
+
     // ==========================================================
     // Partial Update
     // ==========================================================
@@ -216,6 +267,36 @@ impl Timesheet {
                 }
                 "entry_type" => {
                     if let Ok(v) = serde_json::from_value(value) { self.entry_type = v; }
+                }
+                "unit_amount" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.unit_amount = v; }
+                }
+                "currency" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.currency = v; }
+                }
+                "activity_type_id" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.activity_type_id = v; }
+                }
+                "billing_rate" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.billing_rate = v; }
+                }
+                "costing_rate" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.costing_rate = v; }
+                }
+                "is_billable" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.is_billable = v; }
+                }
+                "billable_amount" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.billable_amount = v; }
+                }
+                "costing_amount" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.costing_amount = v; }
+                }
+                "invoice_id" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.invoice_id = v; }
+                }
+                "source_timeoff_request_id" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.source_timeoff_request_id = v; }
                 }
                 _ => {} // ignore unknown fields
             }
@@ -275,11 +356,14 @@ impl backbone_orm::EntityRepoMeta for Timesheet {
         m.insert("employee_id".to_string(), "uuid".to_string());
         m.insert("project_id".to_string(), "uuid".to_string());
         m.insert("task_id".to_string(), "uuid".to_string());
+        m.insert("activity_type_id".to_string(), "uuid".to_string());
+        m.insert("invoice_id".to_string(), "uuid".to_string());
+        m.insert("source_timeoff_request_id".to_string(), "uuid".to_string());
         m.insert("entry_type".to_string(), "timesheet_type".to_string());
         m
     }
     fn search_fields() -> &'static [&'static str] {
-        &[]
+        &["currency"]
     }
     fn company_field() -> Option<&'static str> {
         Some("company_id")
@@ -303,6 +387,16 @@ pub struct TimesheetBuilder {
     time_start: Option<DateTime<Utc>>,
     time_end: Option<DateTime<Utc>>,
     entry_type: Option<TimesheetType>,
+    unit_amount: Option<Decimal>,
+    currency: Option<String>,
+    activity_type_id: Option<Uuid>,
+    billing_rate: Option<Decimal>,
+    costing_rate: Option<Decimal>,
+    is_billable: Option<bool>,
+    billable_amount: Option<Decimal>,
+    costing_amount: Option<Decimal>,
+    invoice_id: Option<Uuid>,
+    source_timeoff_request_id: Option<Uuid>,
 }
 
 impl TimesheetBuilder {
@@ -372,6 +466,66 @@ impl TimesheetBuilder {
         self
     }
 
+    /// Set the unit_amount field (default: `Decimal::from(0)`)
+    pub fn unit_amount(mut self, value: Decimal) -> Self {
+        self.unit_amount = Some(value);
+        self
+    }
+
+    /// Set the currency field (default: `"IDR".to_string()`)
+    pub fn currency(mut self, value: String) -> Self {
+        self.currency = Some(value);
+        self
+    }
+
+    /// Set the activity_type_id field (optional)
+    pub fn activity_type_id(mut self, value: Uuid) -> Self {
+        self.activity_type_id = Some(value);
+        self
+    }
+
+    /// Set the billing_rate field (optional)
+    pub fn billing_rate(mut self, value: Decimal) -> Self {
+        self.billing_rate = Some(value);
+        self
+    }
+
+    /// Set the costing_rate field (optional)
+    pub fn costing_rate(mut self, value: Decimal) -> Self {
+        self.costing_rate = Some(value);
+        self
+    }
+
+    /// Set the is_billable field (default: `true`)
+    pub fn is_billable(mut self, value: bool) -> Self {
+        self.is_billable = Some(value);
+        self
+    }
+
+    /// Set the billable_amount field (default: `Decimal::from(0)`)
+    pub fn billable_amount(mut self, value: Decimal) -> Self {
+        self.billable_amount = Some(value);
+        self
+    }
+
+    /// Set the costing_amount field (default: `Decimal::from(0)`)
+    pub fn costing_amount(mut self, value: Decimal) -> Self {
+        self.costing_amount = Some(value);
+        self
+    }
+
+    /// Set the invoice_id field (optional)
+    pub fn invoice_id(mut self, value: Uuid) -> Self {
+        self.invoice_id = Some(value);
+        self
+    }
+
+    /// Set the source_timeoff_request_id field (optional)
+    pub fn source_timeoff_request_id(mut self, value: Uuid) -> Self {
+        self.source_timeoff_request_id = Some(value);
+        self
+    }
+
     /// Build the Timesheet entity
     ///
     /// Returns Err if any required field without a default is missing.
@@ -395,6 +549,16 @@ impl TimesheetBuilder {
             time_start: self.time_start,
             time_end: self.time_end,
             entry_type: self.entry_type.unwrap_or_default(),
+            unit_amount: self.unit_amount.unwrap_or(Decimal::from(0)),
+            currency: self.currency.unwrap_or("IDR".to_string()),
+            activity_type_id: self.activity_type_id,
+            billing_rate: self.billing_rate,
+            costing_rate: self.costing_rate,
+            is_billable: self.is_billable.unwrap_or(true),
+            billable_amount: self.billable_amount.unwrap_or(Decimal::from(0)),
+            costing_amount: self.costing_amount.unwrap_or(Decimal::from(0)),
+            invoice_id: self.invoice_id,
+            source_timeoff_request_id: self.source_timeoff_request_id,
             metadata: AuditMetadata::default(),
         })
     }

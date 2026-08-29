@@ -60,6 +60,16 @@ pub struct TimesheetDto {
     pub time_start: Option<DateTime<Utc>>,
     pub time_end: Option<DateTime<Utc>>,
     pub entry_type: TimesheetType,
+    pub unit_amount: Decimal,
+    pub currency: String,
+    pub activity_type_id: Option<Uuid>,
+    pub billing_rate: Option<Decimal>,
+    pub costing_rate: Option<Decimal>,
+    pub is_billable: bool,
+    pub billable_amount: Decimal,
+    pub costing_amount: Decimal,
+    pub invoice_id: Option<Uuid>,
+    pub source_timeoff_request_id: Option<Uuid>,
     pub metadata: serde_json::Value,
 }
 

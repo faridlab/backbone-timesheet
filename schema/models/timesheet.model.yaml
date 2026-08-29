@@ -1,15 +1,21 @@
 # =============================================================================
 # Domain: timesheet
 # Entity: Timesheet
-# Description: A logged time entry (work or overtime) against a project/task.
-#              Reads employee.Employee, project.Project, project.Task via
-#              logical FKs (cross-module — no DB constraint).
+# Description: The converged analytic line — one row shape carrying logged time
+#              AND its money columns (plain-stored per the plain-amount ruling:
+#              re-priced only on writes touching the rate-determining fields,
+#              never on reads). Work/overtime entries anchor project/task via
+#              logical FKs (cross-module — no DB constraint); `timeoff` rows are
+#              minted only by the leave-regeneration verb off their own origin
+#              key. The row carries NO state and NO approval of its own — the
+#              per-employee/month approval cycle (timesheet_approvals) stays the
+#              billability gate.
 # =============================================================================
 
 models:
   - name: Timesheet
     collection: timesheets
-    description: "A logged time entry (work or overtime) against a project/task."
+    description: "The converged analytic line: logged time with plain-stored rate/amount snapshots."
 
     fields:
       id:
@@ -68,7 +74,57 @@ models:
       entry_type:
         type: TimesheetType
         attributes: ["@required", "@default(work)"]
-        description: "work / overtime (renamed from `type` — the codegen's repo/exports generators do not escape the `type` keyword)"
+        description: "work / overtime / timeoff (renamed from `type` — the codegen's repo/exports generators do not escape the `type` keyword)"
+
+      unit_amount:
+        type: decimal
+        attributes: ["@required", "@default(0)", "@precision(10,2)", "@non_negative"]
+        description: "Logged hours, plain-stored: computed from the time_start/time_end windows when both present (round half-up, 2dp), else taken from the explicit hours input at create. Reads never recompute."
+
+      currency:
+        type: string
+        attributes: ["@required", "@default('IDR')", "@length(3)"]
+        description: "Money context of the rate snapshots"
+
+      activity_type_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "Activity type the entry is classified under # logical FK project.ActivityType.id"
+
+      billing_rate:
+        type: decimal?
+        attributes: ["@precision(18,2)", "@non_negative"]
+        description: "Billing rate snapshot at the last qualifying write; NULL = rate unknown"
+
+      costing_rate:
+        type: decimal?
+        attributes: ["@precision(18,2)", "@non_negative"]
+        description: "Costing rate snapshot at the last qualifying write; NULL = rate unknown"
+
+      is_billable:
+        type: boolean
+        attributes: ["@required", "@default(true)"]
+        description: "Billability FLAG only — the billability GATE is the approval cycle (timesheet_approvals)"
+
+      billable_amount:
+        type: decimal
+        attributes: ["@required", "@default(0)", "@precision(18,2)", "@non_negative"]
+        description: "unit_amount x billing_rate when is_billable, else 0 — plain-stored, recomputed only on qualifying writes"
+
+      costing_amount:
+        type: decimal
+        attributes: ["@required", "@default(0)", "@precision(18,2)", "@non_negative"]
+        description: "unit_amount x costing_rate — plain-stored, recomputed only on qualifying writes"
+
+      invoice_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "One-way link stamped by the billing exit, cleared on reversal — a link, not a state # logical FK billing.SalesInvoice.id"
+
+      source_timeoff_request_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "Leave origin: rows minted by leave regeneration carry the originating request id (the regeneration fence key) # logical FK timeoff.TimeoffRequest.id"
 
       metadata:
         type: Metadata
@@ -80,6 +136,24 @@ models:
         fields: [company_id, employee_id, date]
       - type: index
         fields: [project_id]
+      # The billing/roll-up scan: one pass over a project's live analytic lines.
+      - type: index
+        fields: [project_id, employee_id, year, month]
+        where: "project_id IS NOT NULL AND (metadata->>'deleted_at') IS NULL"
+        description: "Live analytic-line scan per project (billing exit + roll-ups)"
+      # The reversal lookup: find the rows a credit note re-opens.
+      - type: index
+        fields: [invoice_id]
+        where: "invoice_id IS NOT NULL"
+        description: "Reversal lookup by invoice link"
+      # Leave-regeneration no-duplicates backstop: one live row per (company,
+      # leave request, day). Regeneration is delete-and-regenerate inside one
+      # tx; this partial unique is the DB-level guarantee a raw duplicate
+      # insert cannot survive (ADR-0015 db enforcement).
+      - type: unique
+        fields: [company_id, source_timeoff_request_id, date]
+        where: "source_timeoff_request_id IS NOT NULL AND (metadata->>'deleted_at') IS NULL"
+        description: "One live leave row per leave request per day (regeneration fence)"
 
 enums:
   - name: TimesheetType
@@ -90,3 +164,5 @@ enums:
         description: "Regular work hours"
       - name: overtime
         description: "Overtime hours"
+      - name: timeoff
+        description: "Leave-regenerated absence rows (minted only by the leave-regeneration verb off a timeoff request; neither work nor overtime)"
