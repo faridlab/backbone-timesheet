@@ -37,7 +37,11 @@ pub enum TimesheetVerdict {
 /// plus the back-reference so the engine's notifications link back to the period.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimesheetFilingRequest {
-    /// The company scope (stamped onto the ApprovalRequest for its own fence).
+    /// Legacy company leg for the host-owned approvals adapter (ADR-0029): the module
+    /// itself is tenant-agnostic and carries no tenant column, but the composing service's
+    /// approvals seam still stamps a company onto its ApprovalRequest. The module relays
+    /// the ambient org scope's `legacy_company_id` here and fails closed when none is
+    /// bound — it never guesses a tenant.
     pub company_id: Uuid,
     /// The timesheet approval row the filing is about (correlation id).
     pub timesheet_approval_id: Uuid,

@@ -7,6 +7,9 @@
 # =============================================================================
 
 models:
+  # Tenancy: none, by design (ADR-0029). Tenant-agnostic and reusable; a composing
+  # service's tenancy decorator owns org scoping for this table, including the
+  # per-unit period unique below.
   - name: TimesheetApproval
     collection: timesheet_approvals
     description: "Approval cycle for a timesheet period (per employee/month)."
@@ -16,11 +19,6 @@ models:
         type: uuid
         attributes: ["@id", "@default(uuid)"]
         description: "Unique approval id"
-
-      company_id:
-        type: uuid
-        attributes: ["@required", "@exclude_from_foreign_key_check"]
-        description: "Org owner # logical FK organization.Company.id"
 
       employee_id:
         type: uuid
@@ -81,9 +79,11 @@ models:
         description: "Audit metadata"
 
     indexes:
-      # One approval cycle per employee per period (among live rows).
+      # One approval cycle per employee per period (among live rows). An
+      # employee belongs to exactly one org unit under any deployment, so the
+      # unique needs no tenant column.
       - type: unique
-        fields: [company_id, employee_id, year, month]
+        fields: [employee_id, year, month]
         where: "deleted_at IS NULL"
         description: "One approval cycle per employee per period"
 

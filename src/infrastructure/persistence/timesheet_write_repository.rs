@@ -7,11 +7,16 @@
 //!
 //! Every method takes a `&mut PgConnection` (a transaction begun by the write service) — an
 //! entry mutation and its period-lock read must observe one consistent snapshot, and a period
-//! transition commits with its aggregate recompute or not at all. The caller MUST have bound the
-//! company onto the connection (`company_scope::bind_company_on`) right after `begin()`.
+//! transition commits with its aggregate recompute or not at all. The caller MUST have relayed
+//! the ambient org scope onto the connection (`org_scope::bind_org_scope_on`, when one is
+//! bound) right after `begin()`.
+//!
+//! Tenancy (ADR-0029): the module is tenant-agnostic — no statement here names a tenant
+//! column. Isolation is owned by the COMPOSING service: under its org request scope the
+//! decorator's row-level fence applies; unfenced deployments run plain.
 //!
 //! Soft-delete lives in `metadata` JSONB (`deleted_at` key): every "live row" predicate is
-//! `(metadata->>'deleted_at') IS NULL`, mirroring the module's partial indexes and the fence.
+//! `(metadata->>'deleted_at') IS NULL`, mirroring the module's partial indexes.
 //!
 //! Plain-amount posture (the converged analytic line): every rate/amount column below is
 //! STORED. The service resolves rates on qualifying writes and hands the repo a fully stamped
@@ -132,7 +137,6 @@ pub struct LeaveDayEntry {
 /// A leave regeneration request: delete the request's live rows, insert one row per day.
 #[derive(Debug, Clone)]
 pub struct LeaveRowSync {
-    pub company_id: Uuid,
     pub employee_id: Uuid,
     pub timeoff_request_id: Uuid,
     pub project_id: Uuid,
@@ -151,7 +155,6 @@ impl TimesheetWriteRepository {
     pub async fn period_row(
         &self,
         conn: &mut PgConnection,
-        company_id: Uuid,
         employee_id: Uuid,
         year: i32,
         month: i32,
@@ -159,10 +162,9 @@ impl TimesheetWriteRepository {
         sqlx::query_as::<_, PeriodRow>(
             r#"SELECT id, status::text AS status, approval_request_id
                  FROM timesheet.timesheet_approvals
-                WHERE company_id = $1 AND employee_id = $2 AND year = $3 AND month = $4
+                WHERE employee_id = $1 AND year = $2 AND month = $3
                   AND (metadata->>'deleted_at') IS NULL"#,
         )
-        .bind(company_id)
         .bind(employee_id)
         .bind(year)
         .bind(month)
@@ -175,17 +177,15 @@ impl TimesheetWriteRepository {
     pub async fn live_entry_count(
         &self,
         conn: &mut PgConnection,
-        company_id: Uuid,
         employee_id: Uuid,
         year: i32,
         month: i32,
     ) -> Result<i64, sqlx::Error> {
         sqlx::query_scalar::<_, i64>(
             r#"SELECT count(*) FROM timesheet.timesheets
-                WHERE company_id = $1 AND employee_id = $2 AND year = $3 AND month = $4
+                WHERE employee_id = $1 AND year = $2 AND month = $3
                   AND (metadata->>'deleted_at') IS NULL"#,
         )
-        .bind(company_id)
         .bind(employee_id)
         .bind(year)
         .bind(month)
@@ -200,7 +200,6 @@ impl TimesheetWriteRepository {
     pub async fn sum_period_hours(
         &self,
         conn: &mut PgConnection,
-        company_id: Uuid,
         employee_id: Uuid,
         year: i32,
         month: i32,
@@ -208,10 +207,9 @@ impl TimesheetWriteRepository {
         sqlx::query_scalar::<_, Decimal>(
             r#"SELECT COALESCE(SUM(unit_amount), 0)::numeric(18,2)
                  FROM timesheet.timesheets
-                WHERE company_id = $1 AND employee_id = $2 AND year = $3 AND month = $4
+                WHERE employee_id = $1 AND year = $2 AND month = $3
                   AND (metadata->>'deleted_at') IS NULL"#,
         )
-        .bind(company_id)
         .bind(employee_id)
         .bind(year)
         .bind(month)
@@ -226,17 +224,15 @@ impl TimesheetWriteRepository {
     pub async fn entry_snapshot(
         &self,
         conn: &mut PgConnection,
-        company_id: Uuid,
         entry_id: Uuid,
     ) -> Result<Option<EntrySnapshot>, sqlx::Error> {
         sqlx::query_as::<_, EntrySnapshot>(
             r#"SELECT employee_id, year, month, invoice_id, time_start, time_end, unit_amount,
                       activity_type_id, billing_rate, costing_rate, is_billable
                  FROM timesheet.timesheets
-                WHERE company_id = $1 AND id = $2
+                WHERE id = $1
                   AND (metadata->>'deleted_at') IS NULL"#,
         )
-        .bind(company_id)
         .bind(entry_id)
         .fetch_optional(conn)
         .await
@@ -249,7 +245,6 @@ impl TimesheetWriteRepository {
     pub async fn insert_entry(
         &self,
         conn: &mut PgConnection,
-        company_id: Uuid,
         employee_id: Uuid,
         w: &EntryWrite,
         now: DateTime<Utc>,
@@ -258,17 +253,16 @@ impl TimesheetWriteRepository {
         // employees (the row's employee is the resolution itself).
         sqlx::query_as::<_, EntryRow>(
             &format!(r#"INSERT INTO timesheet.timesheets
-                   (id, company_id, employee_id, project_id, task_id, year, month, date,
+                   (id, employee_id, project_id, task_id, year, month, date,
                     remark, time_start, time_end, entry_type,
                     unit_amount, activity_type_id, billing_rate, costing_rate, is_billable,
                     billable_amount, costing_amount, metadata)
-               VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::timesheet_type,
-                       $12, $13, $14, $15, $16, $17, $18,
-                       jsonb_build_object('created_at', to_jsonb($19::timestamptz),
-                                          'updated_at', to_jsonb($19::timestamptz)))
+               VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timesheet_type,
+                       $11, $12, $13, $14, $15, $16, $17,
+                       jsonb_build_object('created_at', to_jsonb($18::timestamptz),
+                                          'updated_at', to_jsonb($18::timestamptz)))
                RETURNING {ENTRY_COLUMNS}"#),
         )
-        .bind(company_id)
         .bind(employee_id)
         .bind(w.project_id)
         .bind(w.task_id)
@@ -299,25 +293,23 @@ impl TimesheetWriteRepository {
     pub async fn update_entry(
         &self,
         conn: &mut PgConnection,
-        company_id: Uuid,
         entry_id: Uuid,
         w: &EntryWrite,
         now: DateTime<Utc>,
     ) -> Result<Option<EntryRow>, sqlx::Error> {
         sqlx::query_as::<_, EntryRow>(
             &format!(r#"UPDATE timesheet.timesheets
-                  SET project_id = $3, task_id = $4, year = $5, month = $6, date = $7,
-                      remark = $8, time_start = $9, time_end = $10,
-                      entry_type = $11::timesheet_type,
-                      unit_amount = $12, activity_type_id = $13,
-                      billing_rate = $14, costing_rate = $15, is_billable = $16,
-                      billable_amount = $17, costing_amount = $18,
-                      metadata = metadata || jsonb_build_object('updated_at', to_jsonb($19::timestamptz))
-                WHERE company_id = $1 AND id = $2
+                  SET project_id = $2, task_id = $3, year = $4, month = $5, date = $6,
+                      remark = $7, time_start = $8, time_end = $9,
+                      entry_type = $10::timesheet_type,
+                      unit_amount = $11, activity_type_id = $12,
+                      billing_rate = $13, costing_rate = $14, is_billable = $15,
+                      billable_amount = $16, costing_amount = $17,
+                      metadata = metadata || jsonb_build_object('updated_at', to_jsonb($18::timestamptz))
+                WHERE id = $1
                   AND (metadata->>'deleted_at') IS NULL
                 RETURNING {ENTRY_COLUMNS}"#),
         )
-        .bind(company_id)
         .bind(entry_id)
         .bind(w.project_id)
         .bind(w.task_id)
@@ -344,17 +336,15 @@ impl TimesheetWriteRepository {
     pub async fn soft_delete_entry(
         &self,
         conn: &mut PgConnection,
-        company_id: Uuid,
         entry_id: Uuid,
         now: DateTime<Utc>,
     ) -> Result<bool, sqlx::Error> {
         let res = sqlx::query(
             r#"UPDATE timesheet.timesheets
-                  SET metadata = metadata || jsonb_build_object('deleted_at', to_jsonb($3::timestamptz))
-                WHERE company_id = $1 AND id = $2
+                  SET metadata = metadata || jsonb_build_object('deleted_at', to_jsonb($2::timestamptz))
+                WHERE id = $1
                   AND (metadata->>'deleted_at') IS NULL"#,
         )
-        .bind(company_id)
         .bind(entry_id)
         .bind(now)
         .execute(conn)
@@ -369,38 +359,34 @@ impl TimesheetWriteRepository {
     pub async fn count_billed_leave_rows(
         &self,
         conn: &mut PgConnection,
-        company_id: Uuid,
         timeoff_request_id: Uuid,
     ) -> Result<i64, sqlx::Error> {
         sqlx::query_scalar::<_, i64>(
             r#"SELECT count(*) FROM timesheet.timesheets
-                WHERE company_id = $1 AND source_timeoff_request_id = $2
+                WHERE source_timeoff_request_id = $1
                   AND invoice_id IS NOT NULL
                   AND (metadata->>'deleted_at') IS NULL"#,
         )
-        .bind(company_id)
         .bind(timeoff_request_id)
         .fetch_one(conn)
         .await
     }
 
     /// Soft-delete the request's live rows — the first half of regeneration. Runs inside the
-    /// regeneration tx, so the partial unique `(company_id, source_timeoff_request_id, date)`
+    /// regeneration tx, so the partial unique `(source_timeoff_request_id, date)`
     /// sees delete+insert as one step and a raw duplicate insert cannot survive it.
     pub async fn soft_delete_leave_rows(
         &self,
         conn: &mut PgConnection,
-        company_id: Uuid,
         timeoff_request_id: Uuid,
         now: DateTime<Utc>,
     ) -> Result<u64, sqlx::Error> {
         let res = sqlx::query(
             r#"UPDATE timesheet.timesheets
-                  SET metadata = metadata || jsonb_build_object('deleted_at', to_jsonb($3::timestamptz))
-                WHERE company_id = $1 AND source_timeoff_request_id = $2
+                  SET metadata = metadata || jsonb_build_object('deleted_at', to_jsonb($2::timestamptz))
+                WHERE source_timeoff_request_id = $1
                   AND (metadata->>'deleted_at') IS NULL"#,
         )
-        .bind(company_id)
         .bind(timeoff_request_id)
         .bind(now)
         .execute(conn)
@@ -422,13 +408,12 @@ impl TimesheetWriteRepository {
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO timesheet.timesheets
-                   (id, company_id, employee_id, project_id, task_id, year, month, date,
+                   (id, employee_id, project_id, task_id, year, month, date,
                     remark, entry_type, unit_amount, source_timeoff_request_id, metadata)
-               VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, 'timeoff', $9, $10,
-                       jsonb_build_object('created_at', to_jsonb($11::timestamptz),
-                                          'updated_at', to_jsonb($11::timestamptz)))"#,
+               VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, 'timeoff', $8, $9,
+                       jsonb_build_object('created_at', to_jsonb($10::timestamptz),
+                                          'updated_at', to_jsonb($10::timestamptz)))"#,
         )
-        .bind(sync.company_id)
         .bind(sync.employee_id)
         .bind(sync.project_id)
         .bind(sync.task_id)
@@ -454,7 +439,6 @@ impl TimesheetWriteRepository {
         &self,
         conn: &mut PgConnection,
         id: Uuid,
-        company_id: Uuid,
         employee_id: Uuid,
         year: i32,
         month: i32,
@@ -464,14 +448,13 @@ impl TimesheetWriteRepository {
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO timesheet.timesheet_approvals
-                   (id, company_id, employee_id, year, month, remark, status,
+                   (id, employee_id, year, month, remark, status,
                     approval_request_id, submitted_at, metadata)
-               VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8,
-                       jsonb_build_object('created_at', to_jsonb($8::timestamptz),
-                                          'updated_at', to_jsonb($8::timestamptz)))"#,
+               VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7,
+                       jsonb_build_object('created_at', to_jsonb($7::timestamptz),
+                                          'updated_at', to_jsonb($7::timestamptz)))"#,
         )
         .bind(id)
-        .bind(company_id)
         .bind(employee_id)
         .bind(year)
         .bind(month)

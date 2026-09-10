@@ -24,7 +24,6 @@ impl TestDataGenerator for TimesheetTestData {
         let now = Utc::now().to_rfc3339();
         json!({
             "id": Uuid::new_v4().to_string(),
-            "company_id": Uuid::new_v4().to_string(),
             "employee_id": Uuid::new_v4().to_string(),
             "project_id": null,
             "task_id": null,
@@ -53,7 +52,6 @@ impl TestDataGenerator for TimesheetTestData {
         let now = Utc::now().to_rfc3339();
         json!({
             "id": id,
-            "company_id": Uuid::new_v4().to_string(),
             "employee_id": Uuid::new_v4().to_string(),
             "project_id": null,
             "task_id": null,

@@ -755,7 +755,6 @@ components:
       type: object
       required:
         - id
-        - company_id
         - employee_id
         - year
         - month
@@ -769,9 +768,6 @@ components:
         - metadata
       properties:
         id:
-          type: string
-          format: uuid
-        company_id:
           type: string
           format: uuid
         employee_id:
@@ -854,7 +850,6 @@ components:
     CreateTimesheetRequest:
       type: object
       required:
-        - company_id
         - employee_id
         - year
         - month
@@ -867,9 +862,6 @@ components:
         - costing_amount
         - metadata
       properties:
-        company_id:
-          type: string
-          format: uuid
         employee_id:
           type: string
           format: uuid
@@ -937,7 +929,6 @@ components:
     UpdateTimesheetRequest:
       type: object
       required:
-        - company_id
         - employee_id
         - year
         - month
@@ -950,9 +941,6 @@ components:
         - costing_amount
         - metadata
       properties:
-        company_id:
-          type: string
-          format: uuid
         employee_id:
           type: string
           format: uuid
@@ -1020,9 +1008,6 @@ components:
     PatchTimesheetRequest:
       type: object
       properties:
-        company_id:
-          type: string
-          format: uuid
         employee_id:
           type: string
           format: uuid
@@ -1101,7 +1086,6 @@ components:
       type: object
       required:
         - id
-        - company_id
         - employee_id
         - year
         - month
@@ -1109,9 +1093,6 @@ components:
         - metadata
       properties:
         id:
-          type: string
-          format: uuid
-        company_id:
           type: string
           format: uuid
         employee_id:
@@ -1168,16 +1149,12 @@ components:
     CreateTimesheetApprovalRequest:
       type: object
       required:
-        - company_id
         - employee_id
         - year
         - month
         - status
         - metadata
       properties:
-        company_id:
-          type: string
-          format: uuid
         employee_id:
           type: string
           format: uuid
@@ -1219,16 +1196,12 @@ components:
     UpdateTimesheetApprovalRequest:
       type: object
       required:
-        - company_id
         - employee_id
         - year
         - month
         - status
         - metadata
       properties:
-        company_id:
-          type: string
-          format: uuid
         employee_id:
           type: string
           format: uuid
@@ -1270,9 +1243,6 @@ components:
     PatchTimesheetApprovalRequest:
       type: object
       properties:
-        company_id:
-          type: string
-          format: uuid
         employee_id:
           type: string
           format: uuid

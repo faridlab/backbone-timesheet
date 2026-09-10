@@ -24,7 +24,7 @@ rules:
   - id: TS-LV1
     name: one_live_leave_row_per_request_day
     when: insert
-    assert: "at most one live row per (company, source_timeoff_request_id, date); leave regeneration is delete-and-regenerate inside one tx, and a raw duplicate insert raises 23505 on the partial unique"
+    assert: "at most one live row per (source_timeoff_request_id, date); leave regeneration is delete-and-regenerate inside one tx, and a raw duplicate insert raises 23505 on the partial unique"
     error_code: duplicate_leave_row
     enforcement: db
 
@@ -41,4 +41,4 @@ events:
   # timesheet_write_service.rs); listed here so the surface is on record.
   LeaveRowsRegenerated:
     when: "regenerate_leave_rows commits (delete-and-regenerate off a settled timeoff request)"
-    payload: [company_id, employee_id, timeoff_request_id, rows_inserted]
+    payload: [employee_id, timeoff_request_id, rows_inserted]

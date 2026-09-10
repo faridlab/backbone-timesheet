@@ -35,9 +35,6 @@ use crate::domain::entity::TimesheetApprovalStatus;
 #[serde(rename_all = "camelCase")]
 pub struct CreateTimesheetApprovalDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(alias = "employee_id")]
     pub employee_id: Uuid,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "approver_id")]
@@ -74,9 +71,6 @@ pub struct CreateTimesheetApprovalDto {
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateTimesheetApprovalDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(alias = "employee_id")]
     pub employee_id: Uuid,
@@ -115,9 +109,6 @@ pub struct UpdateTimesheetApprovalDto {
 #[serde(rename_all = "camelCase")]
 pub struct PatchTimesheetApprovalDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(skip_serializing_if = "Option::is_none", alias = "company_id")]
-    pub company_id: Option<Uuid>,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "employee_id")]
     pub employee_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "approver_id")]
@@ -147,7 +138,7 @@ pub struct PatchTimesheetApprovalDto {
 impl PatchTimesheetApprovalDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.employee_id.is_some() || self.approver_id.is_some() || self.year.is_some() || self.month.is_some() || self.remark.is_some() || self.billable_time.is_some() || self.billable_cost.is_some() || self.status.is_some() || self.approval_request_id.is_some() || self.submitted_at.is_some() || self.data.is_some()
+        self.employee_id.is_some() || self.approver_id.is_some() || self.year.is_some() || self.month.is_some() || self.remark.is_some() || self.billable_time.is_some() || self.billable_cost.is_some() || self.status.is_some() || self.approval_request_id.is_some() || self.submitted_at.is_some() || self.data.is_some()
     }
 }
 
@@ -165,8 +156,6 @@ impl PatchTimesheetApprovalDto {
 pub struct TimesheetApprovalResponseDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub employee_id: Uuid,
     pub approver_id: Option<Uuid>,
@@ -238,9 +227,9 @@ impl TimesheetApprovalListResponseDto {
 #[serde(rename_all = "camelCase")]
 pub struct TimesheetApprovalSummaryDto {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub employee_id: Uuid,
     pub approver_id: Option<Uuid>,
+    pub year: i32,
     pub created_at: Option<DateTime<Utc>>,
 }
 
@@ -252,7 +241,6 @@ impl From<TimesheetApproval> for TimesheetApprovalResponseDto {
     fn from(entity: TimesheetApproval) -> Self {
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             employee_id: entity.employee_id,
             approver_id: entity.approver_id,
             year: entity.year,
@@ -274,9 +262,9 @@ impl From<TimesheetApproval> for TimesheetApprovalSummaryDto {
         let created_at = backbone_core::PersistentEntity::created_at(&entity);
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             employee_id: entity.employee_id,
             approver_id: entity.approver_id,
+            year: entity.year,
             created_at,
         }
     }
@@ -286,7 +274,6 @@ impl From<CreateTimesheetApprovalDto> for TimesheetApproval {
     fn from(dto: CreateTimesheetApprovalDto) -> Self {
         Self {
             id: Uuid::new_v4(),
-            company_id: dto.company_id,
             employee_id: dto.employee_id,
             approver_id: dto.approver_id,
             year: dto.year,
@@ -307,7 +294,6 @@ impl From<&TimesheetApproval> for TimesheetApprovalResponseDto {
     fn from(entity: &TimesheetApproval) -> Self {
         Self {
             id: entity.id.clone(),
-            company_id: entity.company_id.clone(),
             employee_id: entity.employee_id.clone(),
             approver_id: entity.approver_id.clone(),
             year: entity.year.clone(),
@@ -332,7 +318,6 @@ impl backbone_core::FromCreateDto<CreateTimesheetApprovalDto> for TimesheetAppro
 
 impl backbone_core::ApplyUpdateDto<UpdateTimesheetApprovalDto> for TimesheetApproval {
     fn apply_update(mut self, dto: UpdateTimesheetApprovalDto) -> backbone_core::ServiceResult<Self> {
-        self.company_id = dto.company_id;
         self.employee_id = dto.employee_id;
         self.approver_id = dto.approver_id;
         self.year = dto.year;

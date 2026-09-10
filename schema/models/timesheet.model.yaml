@@ -13,6 +13,9 @@
 # =============================================================================
 
 models:
+  # Tenancy: none, by design (ADR-0029). Tenant-agnostic and reusable; a composing
+  # service's tenancy decorator owns org scoping for this table, including the
+  # per-unit overlap EXCLUDE and the leave-origin unique below.
   - name: Timesheet
     collection: timesheets
     description: "The converged analytic line: logged time with plain-stored rate/amount snapshots."
@@ -22,11 +25,6 @@ models:
         type: uuid
         attributes: ["@id", "@default(uuid)"]
         description: "Unique timesheet id"
-
-      company_id:
-        type: uuid
-        attributes: ["@required", "@exclude_from_foreign_key_check"]
-        description: "Org owner # logical FK organization.Company.id"
 
       employee_id:
         type: uuid
@@ -133,7 +131,7 @@ models:
 
     indexes:
       - type: index
-        fields: [company_id, employee_id, date]
+        fields: [employee_id, date]
       - type: index
         fields: [project_id]
       # The billing/roll-up scan: one pass over a project's live analytic lines.
@@ -146,12 +144,14 @@ models:
         fields: [invoice_id]
         where: "invoice_id IS NOT NULL"
         description: "Reversal lookup by invoice link"
-      # Leave-regeneration no-duplicates backstop: one live row per (company,
-      # leave request, day). Regeneration is delete-and-regenerate inside one
-      # tx; this partial unique is the DB-level guarantee a raw duplicate
-      # insert cannot survive (ADR-0015 db enforcement).
+      # Leave-regeneration no-duplicates backstop: one live row per leave
+      # request per day. A leave request belongs to exactly one employee in one
+      # org unit under any deployment, so the unique needs no tenant column.
+      # Regeneration is delete-and-regenerate inside one tx; this partial
+      # unique is the DB-level guarantee a raw duplicate insert cannot survive
+      # (ADR-0015 db enforcement).
       - type: unique
-        fields: [company_id, source_timeoff_request_id, date]
+        fields: [source_timeoff_request_id, date]
         where: "source_timeoff_request_id IS NOT NULL AND (metadata->>'deleted_at') IS NULL"
         description: "One live leave row per leave request per day (regeneration fence)"
 

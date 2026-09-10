@@ -7,8 +7,10 @@
 //! the submit validation window (month complete), the one-cycle-per-period rule, and the
 //! approvals seam (TR2 fail-closed on linked periods).
 //!
-//! The tenant comes from the [`CompanyContext`] the `company_auth` middleware inserts — never
-//! from the body.
+//! The request is gated by the [`OrgContext`] the composing service's org-auth middleware
+//! inserts — never from the body. Tenancy itself is the composing service's decorator fence
+//! (ADR-0029): the module relays the ambient org scope onto its transactions and stays
+//! tenant-agnostic.
 
 use std::str::FromStr;
 use std::sync::Arc;
@@ -20,7 +22,7 @@ use axum::{
     routing::{delete, post, put},
     Json, Router,
 };
-use backbone_auth::company::CompanyContext;
+use backbone_auth::org::OrgContext;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -145,14 +147,14 @@ struct RejectPeriodBody {
 
 async fn create_entry(
     State(svc): State<Arc<TimesheetWriteService>>,
-    tenant: CompanyContext,
+    _org: OrgContext,
     Json(b): Json<EntryBody>,
 ) -> axum::response::Response {
     let entry = match b.validate() {
         Ok(e) => e,
         Err(e) => return err_response(e),
     };
-    match svc.create_entry(tenant.company_id, entry).await {
+    match svc.create_entry(entry).await {
         Ok(dto) => (StatusCode::CREATED, Json(dto)).into_response(),
         Err(e) => err_response(e),
     }
@@ -160,7 +162,7 @@ async fn create_entry(
 
 async fn update_entry(
     State(svc): State<Arc<TimesheetWriteService>>,
-    tenant: CompanyContext,
+    _org: OrgContext,
     Path(entry_id): Path<Uuid>,
     Json(b): Json<EntryBody>,
 ) -> axum::response::Response {
@@ -168,7 +170,7 @@ async fn update_entry(
         Ok(e) => e,
         Err(e) => return err_response(e),
     };
-    match svc.update_entry(tenant.company_id, entry_id, entry).await {
+    match svc.update_entry(entry_id, entry).await {
         Ok(dto) => entry_response(dto),
         Err(e) => err_response(e),
     }
@@ -176,10 +178,10 @@ async fn update_entry(
 
 async fn delete_entry(
     State(svc): State<Arc<TimesheetWriteService>>,
-    tenant: CompanyContext,
+    _org: OrgContext,
     Path(entry_id): Path<Uuid>,
 ) -> axum::response::Response {
-    match svc.delete_entry(tenant.company_id, entry_id).await {
+    match svc.delete_entry(entry_id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => err_response(e),
     }
@@ -187,11 +189,11 @@ async fn delete_entry(
 
 async fn submit_period(
     State(svc): State<Arc<TimesheetWriteService>>,
-    tenant: CompanyContext,
+    _org: OrgContext,
     Json(b): Json<SubmitPeriodBody>,
 ) -> axum::response::Response {
     match svc
-        .submit_period(tenant.company_id, b.employee_id, b.year, b.month, b.remark, None)
+        .submit_period(b.employee_id, b.year, b.month, b.remark, None)
         .await
     {
         Ok(id) => (StatusCode::CREATED, Json(IdResponse { id })).into_response(),
@@ -201,11 +203,11 @@ async fn submit_period(
 
 async fn approve_period(
     State(svc): State<Arc<TimesheetWriteService>>,
-    tenant: CompanyContext,
+    _org: OrgContext,
     Json(b): Json<ApprovePeriodBody>,
 ) -> axum::response::Response {
     match svc
-        .approve_period(tenant.company_id, b.employee_id, b.year, b.month, b.approver_id)
+        .approve_period(b.employee_id, b.year, b.month, b.approver_id)
         .await
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
@@ -215,11 +217,11 @@ async fn approve_period(
 
 async fn reject_period(
     State(svc): State<Arc<TimesheetWriteService>>,
-    tenant: CompanyContext,
+    _org: OrgContext,
     Json(b): Json<RejectPeriodBody>,
 ) -> axum::response::Response {
     match svc
-        .reject_period(tenant.company_id, b.employee_id, b.year, b.month, b.remark)
+        .reject_period(b.employee_id, b.year, b.month, b.remark)
         .await
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
@@ -230,7 +232,7 @@ async fn reject_period(
 // ── composition ────────────────────────────────────────────────────────────────
 
 /// Build the guarded timesheet router: validated entry + period writes, safe reads, NO generic
-/// CRUD mutation. Mount under the host's authenticated (company_auth) tree.
+/// CRUD mutation. Mount under the host's authenticated (org-auth) tree.
 pub fn create_guarded_timesheet_routes(m: &TimesheetModule) -> Router {
     let writes = Router::new()
         .route("/timesheets/entries", post(create_entry))

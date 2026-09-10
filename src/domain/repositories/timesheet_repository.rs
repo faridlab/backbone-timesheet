@@ -44,7 +44,6 @@ pub struct TimesheetPaginatedResult {
 /// Filter parameters for list queries
 #[derive(Debug, Clone, Default)]
 pub struct TimesheetFilter {
-    pub company_id: Option<Uuid>,
     pub employee_id: Option<Uuid>,
     pub project_id: Option<Uuid>,
     pub task_id: Option<Uuid>,
@@ -60,7 +59,7 @@ pub struct TimesheetFilter {
 impl TimesheetFilter {
     /// Check if any filter is set
     pub fn has_filters(&self) -> bool {
-        self.company_id.is_some() || self.employee_id.is_some() || self.project_id.is_some() || self.task_id.is_some() || self.remark.is_some() || self.entry_type.is_some() || self.currency.is_some() || self.activity_type_id.is_some() || self.is_billable.is_some() || self.invoice_id.is_some() || self.source_timeoff_request_id.is_some()
+        self.employee_id.is_some() || self.project_id.is_some() || self.task_id.is_some() || self.remark.is_some() || self.entry_type.is_some() || self.currency.is_some() || self.activity_type_id.is_some() || self.is_billable.is_some() || self.invoice_id.is_some() || self.source_timeoff_request_id.is_some()
     }
 }
 

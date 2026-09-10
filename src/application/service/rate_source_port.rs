@@ -35,6 +35,11 @@ use uuid::Uuid;
 /// ladder); `activity_type_id` is the row's classification when set.
 #[derive(Debug, Clone)]
 pub struct RateLookup {
+    /// Legacy company leg for the host-owned rate adapters (ADR-0029): the module itself
+    /// is tenant-agnostic and carries no tenant column, but the composing service's rate
+    /// source still reads company-scoped stores (`project.activity_types`, the employee
+    /// cost store). The module relays the ambient org scope's `legacy_company_id` here and
+    /// fails closed when none is bound — it never guesses a tenant.
     pub company_id: Uuid,
     pub employee_id: Option<Uuid>,
     pub activity_type_id: Option<Uuid>,

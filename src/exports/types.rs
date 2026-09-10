@@ -49,7 +49,6 @@ impl From<TimesheetId> for Uuid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimesheetDto {
     pub id: TimesheetId,
-    pub company_id: Uuid,
     pub employee_id: Uuid,
     pub project_id: Option<Uuid>,
     pub task_id: Option<Uuid>,
@@ -123,7 +122,6 @@ impl From<TimesheetApprovalId> for Uuid {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimesheetApprovalDto {
     pub id: TimesheetApprovalId,
-    pub company_id: Uuid,
     pub employee_id: Uuid,
     pub approver_id: Option<Uuid>,
     pub year: i32,

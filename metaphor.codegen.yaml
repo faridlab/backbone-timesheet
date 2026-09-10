@@ -51,6 +51,10 @@ user_owned:
   # regen, not as data-bearing ALTERs.
   - "migrations/20260829110000_analytic_row_convergence.up.sql"
   - "migrations/20260829110000_analytic_row_convergence.down.sql"
+  # Hand-authored migrations (the tenancy strip — the ordering guard is hand-authored
+  # logic, not schema-derived emission).
+  - "migrations/20260911062500_strip_tenancy.up.sql"
+  - "migrations/20260911062500_strip_tenancy.down.sql"
   # Enforcement declarations the schema tree does not derive: the ranged-entries no-overlap
   # backstop, the one-live-leave-row-per-day partial unique, the invoiced-row write guard.
   - "schema/hooks/timesheet.hook.yaml"

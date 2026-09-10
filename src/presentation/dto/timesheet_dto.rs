@@ -35,9 +35,6 @@ use crate::domain::entity::TimesheetType;
 #[serde(rename_all = "camelCase")]
 pub struct CreateTimesheetDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(alias = "employee_id")]
     pub employee_id: Uuid,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "project_id")]
@@ -94,9 +91,6 @@ pub struct CreateTimesheetDto {
 #[cfg_attr(feature = "validation", derive(Validate))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateTimesheetDto {
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(alias = "company_id")]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(alias = "employee_id")]
     pub employee_id: Uuid,
@@ -155,9 +149,6 @@ pub struct UpdateTimesheetDto {
 #[serde(rename_all = "camelCase")]
 pub struct PatchTimesheetDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    #[serde(skip_serializing_if = "Option::is_none", alias = "company_id")]
-    pub company_id: Option<Uuid>,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "employee_id")]
     pub employee_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "project_id")]
@@ -208,7 +199,7 @@ pub struct PatchTimesheetDto {
 impl PatchTimesheetDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.company_id.is_some() || self.employee_id.is_some() || self.project_id.is_some() || self.task_id.is_some() || self.year.is_some() || self.month.is_some() || self.date.is_some() || self.remark.is_some() || self.time_start.is_some() || self.time_end.is_some() || self.entry_type.is_some() || self.unit_amount.is_some() || self.currency.is_some() || self.activity_type_id.is_some() || self.billing_rate.is_some() || self.costing_rate.is_some() || self.is_billable.is_some() || self.billable_amount.is_some() || self.costing_amount.is_some() || self.invoice_id.is_some() || self.source_timeoff_request_id.is_some()
+        self.employee_id.is_some() || self.project_id.is_some() || self.task_id.is_some() || self.year.is_some() || self.month.is_some() || self.date.is_some() || self.remark.is_some() || self.time_start.is_some() || self.time_end.is_some() || self.entry_type.is_some() || self.unit_amount.is_some() || self.currency.is_some() || self.activity_type_id.is_some() || self.billing_rate.is_some() || self.costing_rate.is_some() || self.is_billable.is_some() || self.billable_amount.is_some() || self.costing_amount.is_some() || self.invoice_id.is_some() || self.source_timeoff_request_id.is_some()
     }
 }
 
@@ -226,8 +217,6 @@ impl PatchTimesheetDto {
 pub struct TimesheetResponseDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub id: Uuid,
-    #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
-    pub company_id: Uuid,
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     pub employee_id: Uuid,
     pub project_id: Option<Uuid>,
@@ -311,9 +300,9 @@ impl TimesheetListResponseDto {
 #[serde(rename_all = "camelCase")]
 pub struct TimesheetSummaryDto {
     pub id: Uuid,
-    pub company_id: Uuid,
     pub employee_id: Uuid,
     pub project_id: Option<Uuid>,
+    pub task_id: Option<Uuid>,
     pub created_at: Option<DateTime<Utc>>,
 }
 
@@ -325,7 +314,6 @@ impl From<Timesheet> for TimesheetResponseDto {
     fn from(entity: Timesheet) -> Self {
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             employee_id: entity.employee_id,
             project_id: entity.project_id,
             task_id: entity.task_id,
@@ -356,9 +344,9 @@ impl From<Timesheet> for TimesheetSummaryDto {
         let created_at = backbone_core::PersistentEntity::created_at(&entity);
         Self {
             id: entity.id,
-            company_id: entity.company_id,
             employee_id: entity.employee_id,
             project_id: entity.project_id,
+            task_id: entity.task_id,
             created_at,
         }
     }
@@ -368,7 +356,6 @@ impl From<CreateTimesheetDto> for Timesheet {
     fn from(dto: CreateTimesheetDto) -> Self {
         Self {
             id: Uuid::new_v4(),
-            company_id: dto.company_id,
             employee_id: dto.employee_id,
             project_id: dto.project_id,
             task_id: dto.task_id,
@@ -398,7 +385,6 @@ impl From<&Timesheet> for TimesheetResponseDto {
     fn from(entity: &Timesheet) -> Self {
         Self {
             id: entity.id.clone(),
-            company_id: entity.company_id.clone(),
             employee_id: entity.employee_id.clone(),
             project_id: entity.project_id.clone(),
             task_id: entity.task_id.clone(),
@@ -432,7 +418,6 @@ impl backbone_core::FromCreateDto<CreateTimesheetDto> for Timesheet {
 
 impl backbone_core::ApplyUpdateDto<UpdateTimesheetDto> for Timesheet {
     fn apply_update(mut self, dto: UpdateTimesheetDto) -> backbone_core::ServiceResult<Self> {
-        self.company_id = dto.company_id;
         self.employee_id = dto.employee_id;
         self.project_id = dto.project_id;
         self.task_id = dto.task_id;

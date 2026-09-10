@@ -44,7 +44,6 @@ pub struct TimesheetApprovalPaginatedResult {
 /// Filter parameters for list queries
 #[derive(Debug, Clone, Default)]
 pub struct TimesheetApprovalFilter {
-    pub company_id: Option<Uuid>,
     pub employee_id: Option<Uuid>,
     pub approver_id: Option<Uuid>,
     pub remark: Option<String>,
@@ -55,7 +54,7 @@ pub struct TimesheetApprovalFilter {
 impl TimesheetApprovalFilter {
     /// Check if any filter is set
     pub fn has_filters(&self) -> bool {
-        self.company_id.is_some() || self.employee_id.is_some() || self.approver_id.is_some() || self.remark.is_some() || self.status.is_some() || self.approval_request_id.is_some()
+        self.employee_id.is_some() || self.approver_id.is_some() || self.remark.is_some() || self.status.is_some() || self.approval_request_id.is_some()
     }
 }
 
