@@ -7,7 +7,7 @@ info:
     This API provides 11 standard CRUD endpoints for each model.
 
 servers:
-  - url: http://localhost:3000
+  - url: /
     description: Development server
 
 tags:
@@ -17,7 +17,7 @@ tags:
     description: TimesheetApproval management endpoints
 
 paths:
-  /api/v1/timesheets:
+  /api/v1/timesheet/timesheets:
     get:
       tags:
         - Timesheets
@@ -63,7 +63,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-  /api/v1/timesheets/{id}:
+  /api/v1/timesheet/timesheets/{id}:
     parameters:
       - $ref: '#/components/parameters/IdParam'
 
@@ -135,7 +135,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/timesheets/bulk:
+  /api/v1/timesheet/timesheets/bulk:
     post:
       tags:
         - Timesheets
@@ -227,7 +227,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/timesheets/upsert:
+  /api/v1/timesheet/timesheets/upsert:
     post:
       tags:
         - Timesheets
@@ -257,7 +257,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Timesheet'
 
-  /api/v1/timesheets/trash:
+  /api/v1/timesheet/timesheets/trash:
     get:
       tags:
         - Timesheets
@@ -274,7 +274,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/TimesheetList'
 
-  /api/v1/timesheets/{id}/restore:
+  /api/v1/timesheet/timesheets/{id}/restore:
     parameters:
       - $ref: '#/components/parameters/IdParam'
     post:
@@ -292,7 +292,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/timesheets/empty:
+  /api/v1/timesheet/timesheets/empty:
     delete:
       tags:
         - Timesheets
@@ -309,7 +309,7 @@ paths:
                   deleted_count:
                     type: integer
 
-  /api/v1/timesheets/delete/bulk:
+  /api/v1/timesheet/timesheets/delete/bulk:
     post:
       tags:
         - Timesheets
@@ -329,7 +329,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/timesheets/restore/bulk:
+  /api/v1/timesheet/timesheets/restore/bulk:
     post:
       tags:
         - Timesheets
@@ -347,7 +347,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/timesheets/restore/all:
+  /api/v1/timesheet/timesheets/restore/all:
     post:
       tags:
         - Timesheets
@@ -363,7 +363,7 @@ paths:
                 properties:
                   restored: { type: integer }
 
-  /api/v1/timesheets/trash/bulk:
+  /api/v1/timesheet/timesheets/trash/bulk:
     delete:
       tags:
         - Timesheets
@@ -383,7 +383,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/timesheet_approvals:
+  /api/v1/timesheet/timesheet_approvals:
     get:
       tags:
         - TimesheetApprovals
@@ -429,7 +429,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-  /api/v1/timesheet_approvals/{id}:
+  /api/v1/timesheet/timesheet_approvals/{id}:
     parameters:
       - $ref: '#/components/parameters/IdParam'
 
@@ -501,7 +501,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/timesheet_approvals/bulk:
+  /api/v1/timesheet/timesheet_approvals/bulk:
     post:
       tags:
         - TimesheetApprovals
@@ -593,7 +593,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/timesheet_approvals/upsert:
+  /api/v1/timesheet/timesheet_approvals/upsert:
     post:
       tags:
         - TimesheetApprovals
@@ -623,7 +623,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/TimesheetApproval'
 
-  /api/v1/timesheet_approvals/trash:
+  /api/v1/timesheet/timesheet_approvals/trash:
     get:
       tags:
         - TimesheetApprovals
@@ -640,7 +640,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/TimesheetApprovalList'
 
-  /api/v1/timesheet_approvals/{id}/restore:
+  /api/v1/timesheet/timesheet_approvals/{id}/restore:
     parameters:
       - $ref: '#/components/parameters/IdParam'
     post:
@@ -658,7 +658,7 @@ paths:
         '404':
           $ref: '#/components/responses/NotFound'
 
-  /api/v1/timesheet_approvals/empty:
+  /api/v1/timesheet/timesheet_approvals/empty:
     delete:
       tags:
         - TimesheetApprovals
@@ -675,7 +675,7 @@ paths:
                   deleted_count:
                     type: integer
 
-  /api/v1/timesheet_approvals/delete/bulk:
+  /api/v1/timesheet/timesheet_approvals/delete/bulk:
     post:
       tags:
         - TimesheetApprovals
@@ -695,7 +695,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/timesheet_approvals/restore/bulk:
+  /api/v1/timesheet/timesheet_approvals/restore/bulk:
     post:
       tags:
         - TimesheetApprovals
@@ -713,7 +713,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /api/v1/timesheet_approvals/restore/all:
+  /api/v1/timesheet/timesheet_approvals/restore/all:
     post:
       tags:
         - TimesheetApprovals
@@ -729,7 +729,7 @@ paths:
                 properties:
                   restored: { type: integer }
 
-  /api/v1/timesheet_approvals/trash/bulk:
+  /api/v1/timesheet/timesheet_approvals/trash/bulk:
     delete:
       tags:
         - TimesheetApprovals
