@@ -359,6 +359,12 @@ impl backbone_orm::EntityRepoMeta for Timesheet {
     fn search_fields() -> &'static [&'static str] {
         &["currency"]
     }
+    /// `?include=` hydration for the entry rows' employee (the people column
+    /// every grid wants). Schema-qualified: the entity lives in a sibling
+    /// module's schema.
+    fn relations() -> &'static [(&'static str, &'static str, &'static str)] {
+        &[("employee", "employee.employees", "employeeId")]
+    }
 }
 
 /// Builder for Timesheet entity
