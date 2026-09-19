@@ -347,6 +347,90 @@ async fn guarded_period_lock_freezes_entries() {
     assert_eq!((y2, m2), (y, mo), "the entry never moved periods");
 }
 
+// ─── TS-4b: the period batch — one call, one transaction ───────────────────────
+
+#[tokio::test]
+async fn guarded_period_batch_saves_and_locks_atomically() {
+    let pool = pool().await;
+    let m = module(&pool).await;
+    let company = Uuid::new_v4();
+    let employee = Uuid::new_v4();
+    let (y, mo, date) = prev_month();
+    let app = create_guarded_timesheet_routes(&m);
+
+    // Two seed rows: one the batch updates, one it deletes.
+    let (_, keep_id) = create_entry(app.clone(), &pool, company, employee, date).await; // 9–17
+    let (_, gone_id) = create_entry(app.clone(), &pool, company, employee, date + Duration::days(1)).await;
+    assert_ne!((keep_id, gone_id), (Uuid::default(), Uuid::default()), "seed rows");
+
+    // 1. The week grid in one call: create + update + delete, all applied.
+    let new_date = date + Duration::days(2);
+    let batch = format!(
+        r#"{{"employeeId":"{employee}","year":{y},"month":{mo},
+             "create":[{{"employeeId":"{employee}","date":"{new_date}","timeStart":"{}","timeEnd":"{}"}}],
+             "update":[{{"id":"{keep_id}","employeeId":"{employee}","date":"{date}","timeStart":"{}","timeEnd":"{}"}}],
+             "delete":["{gone_id}"]}}"#,
+        at(new_date, 8).to_rfc3339(), at(new_date, 12).to_rfc3339(),
+        at(date, 9).to_rfc3339(), at(date, 15).to_rfc3339(),
+    );
+    let (s, j) = req_full(app.clone(), &pool, company, "POST", "/timesheets/periods/save", batch).await;
+    assert_eq!(s, StatusCode::OK, "batch save");
+    assert_eq!(j["created"].as_array().map(Vec::len), Some(1), "one row created");
+    assert_eq!(j["updated"].as_array().map(Vec::len), Some(1), "one row updated");
+    assert_eq!(j["deleted"].as_u64(), Some(1), "one row deleted");
+
+    let live = |d: NaiveDate| {
+        format!(
+            "SELECT count(*) FROM timesheet.timesheets WHERE employee_id = '{employee}' \
+             AND date = '{d}' AND (metadata->>'deleted_at') IS NULL"
+        )
+    };
+    let kept_hours: String = one(&pool, format!(
+        "SELECT unit_amount::text FROM timesheet.timesheets WHERE id = '{keep_id}'"
+    )).await;
+    assert_eq!(kept_hours, "6.00", "the updated row repriced to its new window");
+    let n: i64 = one(&pool, live(date)).await;
+    assert_eq!(n, 1, "the updated row is the period's one live row that day");
+    let n: i64 = one(&pool, live(date + Duration::days(1))).await;
+    assert_eq!(n, 0, "the deleted row is gone");
+    let n: i64 = one(&pool, live(new_date)).await;
+    assert_eq!(n, 1, "the created row is live");
+
+    // 2. Atomicity: one refusing op rolls back the WHOLE set. The refusing op
+    // updates a row from ANOTHER period (a current-month row), so the batch's
+    // create must never land.
+    let (_, foreign_id) = create_entry(app.clone(), &pool, company, employee, Utc::now().date_naive()).await;
+    let never_date = date + Duration::days(3);
+    let bad = format!(
+        r#"{{"employeeId":"{employee}","year":{y},"month":{mo},
+             "create":[{{"employeeId":"{employee}","date":"{never_date}","hours":"3.5"}}],
+             "update":[{{"id":"{foreign_id}","employeeId":"{employee}","date":"{}","hours":"1"}}]}}"#,
+        Utc::now().date_naive(),
+    );
+    let s = req(app.clone(), &pool, company, "POST", "/timesheets/periods/save", bad).await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "foreign-period op must be 422");
+    let n: i64 = one(&pool, live(never_date)).await;
+    assert_eq!(n, 0, "the batch's create rolled back with it");
+
+    // 3. The lock refuses the whole set once the period is submitted.
+    let submit = format!(r#"{{"employeeId":"{employee}","year":{y},"month":{mo}}}"#);
+    let s = req(app.clone(), &pool, company, "POST", "/timesheets/periods/submit", submit).await;
+    assert_eq!(s, StatusCode::CREATED, "submit");
+    let locked = format!(
+        r#"{{"employeeId":"{employee}","year":{y},"month":{mo},
+             "create":[{{"employeeId":"{employee}","date":"{}","hours":"2"}}]}}"#,
+        date + Duration::days(4),
+    );
+    let s = req(app.clone(), &pool, company, "POST", "/timesheets/periods/save", locked).await;
+    assert_eq!(s, StatusCode::CONFLICT, "batch on a submitted period must be 409 period_locked");
+
+    // And an empty batch is a caller bug, not a silent no-op — it refuses
+    // before the lock is even consulted.
+    let empty = format!(r#"{{"employeeId":"{employee}","year":{y},"month":{mo}}}"#);
+    let s = req(app, &pool, company, "POST", "/timesheets/periods/save", empty).await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "empty batch must be 422 empty_batch");
+}
+
 // ─── TS-5: reject reopens the period; re-submit revives the SAME cycle row ─────
 
 #[tokio::test]

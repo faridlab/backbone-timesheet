@@ -66,6 +66,17 @@ use super::rate_source_port::{RateLookup, RateSet, TimesheetRateSource, UnwiredR
 
 // ─── error surface ────────────────────────────────────────────────────────────
 
+/// The outcome of one atomic period save: everything the caller needs to
+/// redraw the grid from server truth — the rows as they now stand, and how
+/// many went away.
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PeriodBatchSaved {
+    pub created: Vec<TimesheetEntryDto>,
+    pub updated: Vec<TimesheetEntryDto>,
+    pub deleted: usize,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum TimesheetError {
     #[error("{0} not found")]
@@ -88,6 +99,15 @@ pub enum TimesheetError {
     NegativeHours,
     #[error("the period has no live entries to submit")]
     EmptyPeriod,
+    /// A batch verb refused an empty op set — nothing to do is a caller bug, not a no-op.
+    #[error("the batch carries no operations")]
+    EmptyBatch,
+    /// One batch verb's hard ceiling: a save set this large is a client defect, not a grid.
+    #[error("the batch exceeds 500 operations — split the save")]
+    BatchTooLarge,
+    /// Every row in one batch must land in the period the batch names.
+    #[error("an operation targets a date outside the named period")]
+    EntryOutsidePeriod,
     /// The submit window: the month is not complete yet.
     #[error("the month is not complete yet — submit after month end")]
     WindowNotOpen,
@@ -125,6 +145,9 @@ impl TimesheetError {
             Self::BadEntryType => "bad_entry_type",
             Self::NegativeHours => "negative_hours",
             Self::EmptyPeriod => "empty_period",
+            Self::EmptyBatch => "empty_batch",
+            Self::BatchTooLarge => "batch_too_large",
+            Self::EntryOutsidePeriod => "entry_outside_period",
             Self::WindowNotOpen => "window_not_open",
             Self::ApprovalNotGranted => "approval_not_granted",
             Self::InvoicedRowLocked => "invoiced_row_locked",
@@ -143,7 +166,8 @@ impl TimesheetError {
             | Self::EntryOverlap | Self::ApprovalNotGranted | Self::InvoicedRowLocked
             | Self::LeaveRowBilled => 409,
             Self::InvalidRange | Self::BadEntryType | Self::NegativeHours | Self::EmptyPeriod
-            | Self::WindowNotOpen => 422,
+            | Self::WindowNotOpen | Self::EmptyBatch | Self::BatchTooLarge
+            | Self::EntryOutsidePeriod => 422,
             Self::NoCompanyScope | Self::TimesheetSeam(_) | Self::RateSource(_)
             | Self::Db(_) => 500,
         }
@@ -488,6 +512,177 @@ impl TimesheetWriteService {
         }
         tx.commit().await?;
         Ok(())
+    }
+
+    // ─── period batch (the week grid in one call) ─────────────────────────────
+
+    /// One save of one employee's rows in one period: creates, updates and
+    /// deletes applied in ONE transaction — a flaky connection mid-save can
+    /// leave nothing behind, never half a week. The period lock is asserted
+    /// once up front (and per row for updates, whose source period is read
+    /// off the row itself); every row must belong to the named period and
+    /// the named employee. Creates resolve rates exactly like `create_entry`
+    /// (a create is always a qualifying write); updates reprice only on a
+    /// qualifying change exactly like `update_entry`; deletes refuse invoiced
+    /// rows exactly like `delete_entry`. Any refusal rolls back the whole set.
+    pub async fn save_period_batch(
+        &self,
+        employee_id: Uuid,
+        year: i32,
+        month: i32,
+        create: Vec<NewEntry>,
+        update: Vec<(Uuid, NewEntry)>,
+        delete: Vec<Uuid>,
+    ) -> Result<PeriodBatchSaved, TimesheetError> {
+        let total = create.len() + update.len() + delete.len();
+        if total == 0 {
+            return Err(TimesheetError::EmptyBatch);
+        }
+        if total > 500 {
+            return Err(TimesheetError::BatchTooLarge);
+        }
+
+        let now = Utc::now();
+        let mut tx = self.scoped_tx().await?;
+        // The named period's lock, asserted once for the whole set.
+        self.assert_period_open_ym(&mut tx, employee_id, year, month).await?;
+
+        let mut created = Vec::with_capacity(create.len());
+        for e in create {
+            // The batch is ONE period's grid: a create outside it is a caller bug.
+            if e.employee_id != employee_id
+                || e.date.year() != year
+                || e.date.month() as i32 != month
+            {
+                return Err(TimesheetError::EntryOutsidePeriod);
+            }
+            validate_entry_bounds(e.time_start, e.time_end)?;
+            if let Some(h) = e.hours {
+                if h < Decimal::ZERO {
+                    return Err(TimesheetError::NegativeHours);
+                }
+            }
+            let unit_amount = hours_from_windows(e.time_start, e.time_end)
+                .or(e.hours.map(|h| h.round_dp(2)))
+                .unwrap_or(Decimal::ZERO);
+            let is_billable = e.is_billable.unwrap_or(true);
+            let rates = self.resolve_rates(employee_id, e.activity_type_id).await?;
+            let (billable_amount, costing_amount) =
+                amounts_from(unit_amount, is_billable, rates.billing_rate, rates.costing_rate);
+            let w = EntryWrite {
+                project_id: e.project_id,
+                task_id: e.task_id,
+                date: e.date,
+                remark: e.remark.clone(),
+                time_start: e.time_start,
+                time_end: e.time_end,
+                entry_type: e.entry_type,
+                unit_amount,
+                activity_type_id: e.activity_type_id,
+                billing_rate: rates.billing_rate,
+                costing_rate: rates.costing_rate,
+                is_billable,
+                billable_amount,
+                costing_amount,
+            };
+            let row = self
+                .repo
+                .insert_entry(&mut tx, employee_id, &w, now)
+                .await
+                .map_err(map_entry_write_error)?;
+            created.push(row.into());
+        }
+
+        let mut updated = Vec::with_capacity(update.len());
+        for (entry_id, e) in update {
+            let snap: EntrySnapshot = self
+                .repo
+                .entry_snapshot(&mut tx, entry_id)
+                .await?
+                .ok_or(TimesheetError::NotFound("timesheet entry"))?;
+            // The row must live in the named period and belong to the named
+            // employee — a batch must not smuggle another period's (or
+            // employee's) row id past the single up-front lock.
+            if snap.employee_id != employee_id
+                || snap.year != year
+                || snap.month != month
+                || e.employee_id != employee_id
+                || e.date.year() != year
+                || e.date.month() as i32 != month
+            {
+                return Err(TimesheetError::EntryOutsidePeriod);
+            }
+            if snap.invoice_id.is_some() {
+                return Err(TimesheetError::InvoicedRowLocked);
+            }
+            validate_entry_bounds(e.time_start, e.time_end)?;
+            if let Some(h) = e.hours {
+                if h < Decimal::ZERO {
+                    return Err(TimesheetError::NegativeHours);
+                }
+            }
+            let unit_amount = hours_from_windows(e.time_start, e.time_end)
+                .or(e.hours.map(|h| h.round_dp(2)))
+                .unwrap_or(snap.unit_amount);
+            let qualifying = snap.time_start != e.time_start
+                || snap.time_end != e.time_end
+                || unit_amount != snap.unit_amount
+                || snap.activity_type_id != e.activity_type_id;
+            let rates = if qualifying {
+                self.resolve_rates(snap.employee_id, e.activity_type_id).await?
+            } else {
+                RateSet { billing_rate: snap.billing_rate, costing_rate: snap.costing_rate }
+            };
+            let is_billable = e.is_billable.unwrap_or(snap.is_billable);
+            let (billable_amount, costing_amount) =
+                amounts_from(unit_amount, is_billable, rates.billing_rate, rates.costing_rate);
+            let w = EntryWrite {
+                project_id: e.project_id,
+                task_id: e.task_id,
+                date: e.date,
+                remark: e.remark.clone(),
+                time_start: e.time_start,
+                time_end: e.time_end,
+                entry_type: e.entry_type,
+                unit_amount,
+                activity_type_id: e.activity_type_id,
+                billing_rate: rates.billing_rate,
+                costing_rate: rates.costing_rate,
+                is_billable,
+                billable_amount,
+                costing_amount,
+            };
+            let row = self
+                .repo
+                .update_entry(&mut tx, entry_id, &w, now)
+                .await
+                .map_err(map_entry_write_error)?
+                .ok_or(TimesheetError::NotFound("timesheet entry"))?;
+            updated.push(row.into());
+        }
+
+        let mut deleted = 0usize;
+        for entry_id in delete {
+            let snap = self
+                .repo
+                .entry_snapshot(&mut tx, entry_id)
+                .await?
+                .ok_or(TimesheetError::NotFound("timesheet entry"))?;
+            if snap.employee_id != employee_id || snap.year != year || snap.month != month {
+                return Err(TimesheetError::EntryOutsidePeriod);
+            }
+            if snap.invoice_id.is_some() {
+                return Err(TimesheetError::InvoicedRowLocked);
+            }
+            let went = self.repo.soft_delete_entry(&mut tx, entry_id, now).await?;
+            if !went {
+                return Err(TimesheetError::NotFound("timesheet entry"));
+            }
+            deleted += 1;
+        }
+
+        tx.commit().await?;
+        Ok(PeriodBatchSaved { created, updated, deleted })
     }
 
     // ─── leave regeneration (authoritative over its OWN rows) ─────────────────

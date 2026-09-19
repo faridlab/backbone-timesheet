@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::application::service::timesheet_write_service::{
-    TimesheetEntryDto, TimesheetError, TimesheetWriteService,
+    PeriodBatchSaved, TimesheetEntryDto, TimesheetError, TimesheetWriteService,
 };
 use crate::infrastructure::persistence::NewEntry;
 use crate::TimesheetModule;
@@ -143,6 +143,31 @@ struct RejectPeriodBody {
     remark: Option<String>,
 }
 
+/// One atomic save of a period's grid: rows to create, update and delete in
+/// a single call. Every row belongs to one employee and one period — the
+/// period named on the body.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SavePeriodBody {
+    employee_id: Uuid,
+    year: i32,
+    month: i32,
+    #[serde(default)]
+    create: Vec<EntryBody>,
+    #[serde(default)]
+    update: Vec<UpdateEntryOp>,
+    #[serde(default)]
+    delete: Vec<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateEntryOp {
+    id: Uuid,
+    #[serde(flatten)]
+    entry: EntryBody,
+}
+
 // ── handlers ───────────────────────────────────────────────────────────────────
 
 async fn create_entry(
@@ -229,6 +254,41 @@ async fn reject_period(
     }
 }
 
+/// The week grid in one call: create/update/delete applied atomically, the
+/// whole set refused together when the period is locked or any row refuses.
+async fn save_period(
+    State(svc): State<Arc<TimesheetWriteService>>,
+    _org: OrgContext,
+    Json(b): Json<SavePeriodBody>,
+) -> axum::response::Response {
+    // One employee, one period: a row naming anyone else is a caller bug.
+    for e in b.create.iter().chain(b.update.iter().map(|u| &u.entry)) {
+        if e.employee_id != b.employee_id {
+            return err_response(TimesheetError::EntryOutsidePeriod);
+        }
+    }
+    let create = match b.create.iter().map(|e| e.validate()).collect::<Result<Vec<_>, _>>() {
+        Ok(v) => v,
+        Err(e) => return err_response(e),
+    };
+    let update = match b
+        .update
+        .iter()
+        .map(|u| u.entry.validate().map(|entry| (u.id, entry)))
+        .collect::<Result<Vec<_>, _>>()
+    {
+        Ok(v) => v,
+        Err(e) => return err_response(e),
+    };
+    match svc
+        .save_period_batch(b.employee_id, b.year, b.month, create, update, b.delete)
+        .await
+    {
+        Ok(saved) => (StatusCode::OK, Json(saved)).into_response(),
+        Err(e) => err_response(e),
+    }
+}
+
 // ── composition ────────────────────────────────────────────────────────────────
 
 /// Build the guarded timesheet router: validated entry + period writes, safe reads, NO generic
@@ -238,6 +298,7 @@ pub fn create_guarded_timesheet_routes(m: &TimesheetModule) -> Router {
         .route("/timesheets/entries", post(create_entry))
         .route("/timesheets/entries/:entry_id", put(update_entry))
         .route("/timesheets/entries/:entry_id", delete(delete_entry))
+        .route("/timesheets/periods/save", post(save_period))
         .route("/timesheets/periods/submit", post(submit_period))
         .route("/timesheets/periods/approve", post(approve_period))
         .route("/timesheets/periods/reject", post(reject_period))
