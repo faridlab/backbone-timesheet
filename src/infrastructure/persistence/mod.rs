@@ -4,6 +4,7 @@
 //!
 //! Uses backbone-orm's `DatabaseOperations<T>` trait.
 
+mod rate_card_repository;
 mod timesheet_repository;
 mod timesheet_approval_repository;
 
@@ -14,6 +15,7 @@ mod timesheet_write_repository;
 // END CUSTOM
 
 // Re-exports
+pub use rate_card_repository::RateCardRepository;
 pub use timesheet_repository::TimesheetRepository;
 pub use timesheet_approval_repository::TimesheetApprovalRepository;
 

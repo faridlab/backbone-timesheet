@@ -12,6 +12,7 @@ use sqlx::postgres::PgPoolOptions;
 use std::env;
 
 // Import seeders
+use backbone_timesheet::seeders::SeedRateCardSeeder;
 use backbone_timesheet::seeders::SeedTimesheetSeeder;
 use backbone_timesheet::seeders::SeedTimesheetApprovalSeeder;
 use backbone_timesheet::seeders::Seeder;
@@ -42,6 +43,7 @@ async fn main() -> Result<()> {
 
     // Register seeders in order
     let mut seeders: Vec<Box<dyn Seeder + Send + Sync>> = Vec::new();
+    seeders.push(Box::new(SeedRateCardSeeder::new()));
     seeders.push(Box::new(SeedTimesheetSeeder::new()));
     seeders.push(Box::new(SeedTimesheetApprovalSeeder::new()));
 

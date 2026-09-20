@@ -11,12 +11,380 @@ servers:
     description: Development server
 
 tags:
+  - name: RateCards
+    description: RateCard management endpoints
   - name: Timesheets
     description: Timesheet management endpoints
   - name: TimesheetApprovals
     description: TimesheetApproval management endpoints
 
 paths:
+  /api/v1/timesheet/rate_cards:
+    get:
+      tags:
+        - RateCards
+      summary: List RateCards
+      description: Get a paginated list of RateCards with optional filtering and sorting
+      operationId: listRateCards
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - $ref: '#/components/parameters/SortByParam'
+        - $ref: '#/components/parameters/SortOrderParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateCardList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags:
+        - RateCards
+      summary: Create RateCard
+      description: Create a new RateCard
+      operationId: createRateCard
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRateCardRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateCard'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/timesheet/rate_cards/{id}:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+
+    get:
+      tags:
+        - RateCards
+      summary: Get RateCard by ID
+      operationId: getRateCard
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateCard'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags:
+        - RateCards
+      summary: Update RateCard (full)
+      operationId: updateRateCard
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRateCardRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateCard'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags:
+        - RateCards
+      summary: Update RateCard (partial)
+      operationId: patchRateCard
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchRateCardRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateCard'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - RateCards
+      summary: Delete RateCard (soft)
+      operationId: deleteRateCard
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/timesheet/rate_cards/bulk:
+    post:
+      tags:
+        - RateCards
+      summary: Bulk create RateCards
+      operationId: bulkCreateRateCards
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/CreateRateCardRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RateCard'
+    put:
+      tags:
+        - RateCards
+      summary: Bulk update RateCards (full, atomic)
+      operationId: bulkUpdateRateCards
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                allOf:
+                  - type: object
+                    required: [id]
+                    properties:
+                      id:
+                        type: string
+                  - $ref: '#/components/schemas/UpdateRateCardRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateCardBulkResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    patch:
+      tags:
+        - RateCards
+      summary: Bulk partial-update RateCards (atomic)
+      operationId: bulkPatchRateCards
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  required: [ids, patch]
+                  properties:
+                    ids:
+                      type: array
+                      items: { type: string }
+                    patch:
+                      type: object
+                      additionalProperties: true
+                - type: object
+                  required: [items]
+                  properties:
+                    items:
+                      type: array
+                      items:
+                        type: object
+                        required: [id, patch]
+                        properties:
+                          id: { type: string }
+                          patch: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateCardBulkResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/timesheet/rate_cards/upsert:
+    post:
+      tags:
+        - RateCards
+      summary: Upsert RateCard
+      operationId: upsertRateCard
+      parameters:
+        - name: key_field
+          in: query
+          schema:
+            type: string
+        - name: key_value
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRateCardRequest'
+      responses:
+        '200':
+          description: Upserted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateCard'
+
+  /api/v1/timesheet/rate_cards/trash:
+    get:
+      tags:
+        - RateCards
+      summary: List deleted RateCards
+      operationId: listDeletedRateCards
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateCardList'
+
+  /api/v1/timesheet/rate_cards/{id}/restore:
+    parameters:
+      - $ref: '#/components/parameters/IdParam'
+    post:
+      tags:
+        - RateCards
+      summary: Restore deleted RateCard
+      operationId: restoreRateCard
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateCard'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/timesheet/rate_cards/empty:
+    delete:
+      tags:
+        - RateCards
+      summary: Empty trash for RateCards
+      operationId: emptyTrashRateCards
+      responses:
+        '200':
+          description: Trash emptied
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted_count:
+                    type: integer
+
+  /api/v1/timesheet/rate_cards/delete/bulk:
+    post:
+      tags:
+        - RateCards
+      summary: Bulk soft-delete RateCards by ids (atomic)
+      operationId: bulkDeleteRateCards
+      requestBody:
+        $ref: '#/components/requestBodies/BatchIds'
+      responses:
+        '200':
+          description: Soft-deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  soft_deleted: { type: integer }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/timesheet/rate_cards/restore/bulk:
+    post:
+      tags:
+        - RateCards
+      summary: Bulk restore RateCards by ids (atomic)
+      operationId: bulkRestoreRateCards
+      requestBody:
+        $ref: '#/components/requestBodies/BatchIds'
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateCardBulkResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/v1/timesheet/rate_cards/restore/all:
+    post:
+      tags:
+        - RateCards
+      summary: Restore all soft-deleted RateCards
+      operationId: restoreAllRateCards
+      responses:
+        '200':
+          description: Restored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  restored: { type: integer }
+
+  /api/v1/timesheet/rate_cards/trash/bulk:
+    delete:
+      tags:
+        - RateCards
+      summary: Bulk permanently-delete RateCards from trash by ids (atomic)
+      operationId: bulkPermanentDeleteRateCards
+      requestBody:
+        $ref: '#/components/requestBodies/BatchIds'
+      responses:
+        '200':
+          description: Permanently deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  permanently_deleted: { type: integer }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
   /api/v1/timesheet/timesheets:
     get:
       tags:
@@ -751,6 +1119,133 @@ paths:
 
 components:
   schemas:
+    RateCard:
+      type: object
+      required:
+        - id
+        - employee_id
+        - valid_from
+        - metadata
+      properties:
+        id:
+          type: string
+          format: uuid
+        employee_id:
+          type: string
+          format: uuid
+        activity_type_id:
+          nullable: true
+          type: string
+          format: uuid
+        billing_rate:
+          nullable: true
+          type: string
+        costing_rate:
+          nullable: true
+          type: string
+        valid_from:
+          type: string
+          format: date
+        metadata:
+          type: object
+
+    RateCardBulkResult:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RateCard'
+        total: { type: integer }
+        failed: { type: integer }
+        errors:
+          type: array
+          items: { type: string }
+
+    CreateRateCardRequest:
+      type: object
+      required:
+        - employee_id
+        - valid_from
+        - metadata
+      properties:
+        employee_id:
+          type: string
+          format: uuid
+        activity_type_id:
+          nullable: true
+          type: string
+          format: uuid
+        billing_rate:
+          nullable: true
+          type: string
+        costing_rate:
+          nullable: true
+          type: string
+        valid_from:
+          type: string
+          format: date
+        metadata:
+          type: object
+
+    UpdateRateCardRequest:
+      type: object
+      required:
+        - employee_id
+        - valid_from
+        - metadata
+      properties:
+        employee_id:
+          type: string
+          format: uuid
+        activity_type_id:
+          nullable: true
+          type: string
+          format: uuid
+        billing_rate:
+          nullable: true
+          type: string
+        costing_rate:
+          nullable: true
+          type: string
+        valid_from:
+          type: string
+          format: date
+        metadata:
+          type: object
+
+    PatchRateCardRequest:
+      type: object
+      properties:
+        employee_id:
+          type: string
+          format: uuid
+        activity_type_id:
+          nullable: true
+          type: string
+          format: uuid
+        billing_rate:
+          nullable: true
+          type: string
+        costing_rate:
+          nullable: true
+          type: string
+        valid_from:
+          type: string
+          format: date
+        metadata:
+          type: object
+
+    RateCardList:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/RateCard'
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
     Timesheet:
       type: object
       required:

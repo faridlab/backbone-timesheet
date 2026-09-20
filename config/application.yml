@@ -34,6 +34,13 @@ entities:
     pagination:
       default_limit: 20
       max_limit: 100
+  rate_card:
+    collection: rate_cards
+    enabled: true
+    cache_ttl: 300
+    pagination:
+      default_limit: 20
+      max_limit: 100
 tracing:
   enabled: true
   exporter: otlp

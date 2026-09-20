@@ -1,0 +1,52 @@
+# =============================================================================
+# Domain: timesheet
+# Entity: RateCard
+# Description: What rate snapshots snapshot FROM — a per-person rate card,
+#              optionally narrowed to one activity type. The first matching
+#              row (person+activity, then person-wide) wins; the project
+#              activity-type master stays the fallback rung.
+# =============================================================================
+
+models:
+  - name: RateCard
+    collection: rate_cards
+    description: "A person's rates, optionally per activity type — the source the analytic row snapshots."
+
+    fields:
+      id:
+        type: uuid
+        attributes: ["@id", "@default(uuid)"]
+
+      employee_id:
+        type: uuid
+        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        description: "The person whose rates these are"
+
+      activity_type_id:
+        type: uuid?
+        attributes: ["@exclude_from_foreign_key_check"]
+        description: "Narrow to one activity type; NULL = the person's default rates"
+
+      billing_rate:
+        type: decimal?
+        attributes: ["@precision(18,4)"]
+        description: "Hourly billing rate (NULL = inherit the fallback rung)"
+
+      costing_rate:
+        type: decimal?
+        attributes: ["@precision(18,4)"]
+        description: "Hourly costing rate (NULL = inherit the fallback rung)"
+
+      valid_from:
+        type: date
+        attributes: ["@required"]
+        description: "Effective from (inclusive) — mid-month changes snapshot forward, old rows keep old rates"
+
+      metadata:
+        type: Metadata
+        attributes: ["@audit_metadata"]
+        description: Audit metadata
+
+    indexes:
+      - type: index
+        fields: [employee_id, valid_from]

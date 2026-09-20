@@ -7,6 +7,7 @@
 pub mod error;
 pub use error::{ServiceError, ServiceResult};
 
+pub mod rate_card_service;
 pub mod timesheet_service;
 pub mod timesheet_approval_service;
 
@@ -25,6 +26,7 @@ pub mod rate_source_port;
 pub mod timesheet_write_service;
 // END CUSTOM
 
+pub use rate_card_service::RateCardService;
 pub use timesheet_service::TimesheetService;
 pub use timesheet_approval_service::TimesheetApprovalService;
 // <<< CUSTOM

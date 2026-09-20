@@ -5,10 +5,19 @@
 //! This module provides DTOs for the presentation layer,
 //! with validation and OpenAPI schema support.
 
+pub mod rate_card_dto;
 pub mod timesheet_dto;
 pub mod timesheet_approval_dto;
 
 // Re-exports
+pub use rate_card_dto::{
+    CreateRateCardDto,
+    UpdateRateCardDto,
+    PatchRateCardDto,
+    RateCardResponseDto,
+    RateCardListResponseDto,
+    RateCardSummaryDto,
+};
 pub use timesheet_dto::{
     CreateTimesheetDto,
     UpdateTimesheetDto,

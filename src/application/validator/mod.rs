@@ -5,9 +5,11 @@
 pub mod shared_types;
 pub use shared_types::{ValidationError, ValidationErrors, ValidationResult, EntityValidator};
 
+pub mod rate_card_validator;
 pub mod timesheet_validator;
 pub mod timesheet_approval_validator;
 
+pub use rate_card_validator::{RateCardValidator, rate_card_validator};
 pub use timesheet_validator::{TimesheetValidator, timesheet_validator};
 pub use timesheet_approval_validator::{TimesheetApprovalValidator, timesheet_approval_validator};
 

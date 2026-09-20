@@ -32,6 +32,7 @@ pub use domain::entity::*;
 pub use infrastructure::persistence::*;
 
 // Re-exports - Application services
+pub use application::service::RateCardService;
 pub use application::service::TimesheetService;
 pub use application::service::TimesheetApprovalService;
 
@@ -74,6 +75,7 @@ use sqlx::PgPool;
 /// let router = timesheet.all_crud_routes();
 /// ```
 pub struct TimesheetModule {
+    pub(crate) rate_card_service: Arc<RateCardService>,
     pub(crate) timesheet_service: Arc<TimesheetService>,
     pub(crate) timesheet_approval_service: Arc<TimesheetApprovalService>,
     // <<< CUSTOM FIELDS
@@ -96,11 +98,13 @@ impl TimesheetModule {
     /// real deployment; use this only in trusted/admin/seeding contexts.
     pub fn all_crud_routes(&self) -> Router {
         use presentation::http::{
+            create_rate_card_routes,
             create_timesheet_routes,
             create_timesheet_approval_routes,
         };
 
         Router::new()
+            .merge(create_rate_card_routes(self.rate_card_service.clone()))
             .merge(create_timesheet_routes(self.timesheet_service.clone()))
             .merge(create_timesheet_approval_routes(self.timesheet_approval_service.clone()))
     }
@@ -122,11 +126,13 @@ impl TimesheetModule {
     /// merge validated write routes (or a write service's HTTP layer) onto it.
     pub fn readonly_routes(&self) -> Router {
         use presentation::http::{
+            create_rate_card_read_routes,
             create_timesheet_read_routes,
             create_timesheet_approval_read_routes,
         };
 
         Router::new()
+            .merge(create_rate_card_read_routes(self.rate_card_service.clone()))
             .merge(create_timesheet_read_routes(self.timesheet_service.clone()))
             .merge(create_timesheet_approval_read_routes(self.timesheet_approval_service.clone()))
     }
@@ -162,6 +168,10 @@ impl TimesheetModuleBuilder {
         let db_pool = self.db_pool
             .ok_or_else(|| anyhow::anyhow!("Database pool not configured"))?;
 
+        // RateCard service
+        let rate_card_repository = Arc::new(RateCardRepository::new(db_pool.clone()));
+        let rate_card_service = Arc::new(RateCardService::with_repository(rate_card_repository.clone()));
+
         // Timesheet service
         let timesheet_repository = Arc::new(TimesheetRepository::new(db_pool.clone()));
         let timesheet_service = Arc::new(TimesheetService::with_repository(timesheet_repository.clone()));
@@ -175,6 +185,7 @@ impl TimesheetModuleBuilder {
         // END CUSTOM
 
         Ok(TimesheetModule {
+            rate_card_service,
             timesheet_service,
             timesheet_approval_service,
             // <<< CUSTOM

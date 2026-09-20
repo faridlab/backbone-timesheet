@@ -11,6 +11,33 @@ use chrono::{DateTime, Utc};
 use super::types::*;
 
 // ============================================================================
+// RATECARD EVENTS
+// ============================================================================
+
+/// Event published when a RateCard is created
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateCardCreatedEvent {
+    pub id: RateCardId,
+    pub data: RateCardDto,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// Event published when a RateCard is updated
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateCardUpdatedEvent {
+    pub id: RateCardId,
+    pub data: RateCardDto,
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// Event published when a RateCard is deleted
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateCardDeletedEvent {
+    pub id: RateCardId,
+    pub occurred_at: DateTime<Utc>,
+}
+
+// ============================================================================
 // TIMESHEET EVENTS
 // ============================================================================
 
@@ -72,6 +99,9 @@ pub struct TimesheetApprovalDeletedEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum TimesheetEvent {
+    RateCardCreated(RateCardCreatedEvent),
+    RateCardUpdated(RateCardUpdatedEvent),
+    RateCardDeleted(RateCardDeletedEvent),
     TimesheetCreated(TimesheetCreatedEvent),
     TimesheetUpdated(TimesheetUpdatedEvent),
     TimesheetDeleted(TimesheetDeletedEvent),

@@ -9,9 +9,11 @@ use anyhow::Result;
 use async_trait::async_trait;
 use sqlx::PgPool;
 
+mod rate_card_seeder;
 mod timesheet_seeder;
 mod timesheet_approval_seeder;
 
+pub use rate_card_seeder::SeedRateCardSeeder;
 pub use timesheet_seeder::SeedTimesheetSeeder;
 pub use timesheet_approval_seeder::SeedTimesheetApprovalSeeder;
 

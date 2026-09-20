@@ -9,3 +9,6 @@
 
 - timesheet_seed
 - timesheet_approval_seed
+
+# Newly added seeds (preserve manual order above):
+- rate_card_seed

@@ -9,17 +9,20 @@ use axum::Router;
 use std::sync::Arc;
 
 use super::{
+    rate_card_handler::create_rate_card_routes,
     timesheet_handler::create_timesheet_routes,
     timesheet_approval_handler::create_timesheet_approval_routes,
 };
 
 use crate::application::service::{
+    RateCardService,
     TimesheetService,
     TimesheetApprovalService,
 };
 
 /// Services collection for all CRUD endpoints
 pub struct HttpServices {
+    pub rate_card: Arc<RateCardService>,
     pub timesheet: Arc<TimesheetService>,
     pub timesheet_approval: Arc<TimesheetApprovalService>,
 }
@@ -41,6 +44,8 @@ pub struct HttpServices {
 /// 12. GET /api/v1/{collection}/:id/deleted - Get deleted by ID
 pub fn configure_routes(services: HttpServices) -> Router {
     Router::new()
+        // RateCard routes (12 Backbone endpoints)
+        .merge(create_rate_card_routes(services.rate_card))
         // Timesheet routes (12 Backbone endpoints)
         .merge(create_timesheet_routes(services.timesheet))
         // TimesheetApproval routes (12 Backbone endpoints)
@@ -50,6 +55,10 @@ pub fn configure_routes(services: HttpServices) -> Router {
 /// Create an individual entity's routes (for modular configuration)
 pub mod individual {
     use super::*;
+
+    pub fn rate_card_routes(service: Arc<RateCardService>) -> Router {
+        create_rate_card_routes(service)
+    }
 
     pub fn timesheet_routes(service: Arc<TimesheetService>) -> Router {
         create_timesheet_routes(service)

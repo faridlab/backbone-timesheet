@@ -6,10 +6,17 @@
 //! Implementations should be in the infrastructure layer.
 
 
+pub mod rate_card_repository;
 pub mod timesheet_repository;
 pub mod timesheet_approval_repository;
 
 // Re-exports
+pub use rate_card_repository::{
+    RateCardRepository,
+    RateCardPaginationParams,
+    RateCardPaginatedResult,
+    RateCardFilter,
+};
 pub use timesheet_repository::{
     TimesheetRepository,
     TimesheetPaginationParams,

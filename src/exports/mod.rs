@@ -8,7 +8,7 @@
 //! ## Usage from other modules
 //!
 //! ```text
-//! use timesheet::exports::{TimesheetDto};
+//! use timesheet::exports::{RateCardDto};
 //! ```
 
 mod types;
@@ -27,6 +27,9 @@ pub use events::*;
 /// Summary of what this module exports
 ///
 /// ## Public Types
+/// - `RateCardDto` - Data transfer object for RateCard
+/// - `RateCardSummary` - Summary view of RateCard
+/// - `RateCardId` - Type-safe ID wrapper
 /// - `TimesheetDto` - Data transfer object for Timesheet
 /// - `TimesheetSummary` - Summary view of Timesheet
 /// - `TimesheetId` - Type-safe ID wrapper
@@ -35,6 +38,9 @@ pub use events::*;
 /// - `TimesheetApprovalId` - Type-safe ID wrapper
 ///
 /// ## Public Events
+/// - `RateCardCreatedEvent` - Published when RateCard is created
+/// - `RateCardUpdatedEvent` - Published when RateCard is updated
+/// - `RateCardDeletedEvent` - Published when RateCard is deleted
 /// - `TimesheetCreatedEvent` - Published when Timesheet is created
 /// - `TimesheetUpdatedEvent` - Published when Timesheet is updated
 /// - `TimesheetDeletedEvent` - Published when Timesheet is deleted

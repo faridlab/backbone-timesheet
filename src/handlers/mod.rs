@@ -9,6 +9,7 @@
 use std::sync::Arc;
 
 // Import all services
+use crate::application::service::RateCardService;
 use crate::application::service::TimesheetService;
 use crate::application::service::TimesheetApprovalService;
 
@@ -30,6 +31,8 @@ use crate::application::service::TimesheetApprovalService;
 /// ```
 #[derive(Clone)]
 pub struct AppState {
+    /// RateCard service
+    pub rate_card_service: Arc<RateCardService>,
     /// Timesheet service
     pub timesheet_service: Arc<TimesheetService>,
     /// TimesheetApproval service
@@ -39,10 +42,12 @@ pub struct AppState {
 impl AppState {
     /// Create a new AppState with all services.
     pub fn new(
+        rate_card_service: Arc<RateCardService>,
         timesheet_service: Arc<TimesheetService>,
         timesheet_approval_service: Arc<TimesheetApprovalService>
     ) -> Self {
         Self {
+            rate_card_service,
             timesheet_service,
             timesheet_approval_service,
         }
@@ -51,6 +56,7 @@ impl AppState {
     /// Create AppState from module instance.
     pub fn from_module(module: &crate::TimesheetModule) -> Self {
         Self {
+            rate_card_service: module.rate_card_service.clone(),
             timesheet_service: module.timesheet_service.clone(),
             timesheet_approval_service: module.timesheet_approval_service.clone(),
         }
@@ -62,6 +68,7 @@ impl AppState {
 /// Allows incremental construction of AppState.
 #[derive(Default)]
 pub struct AppStateBuilder {
+    rate_card_service: Option<Arc<RateCardService>>,
     timesheet_service: Option<Arc<TimesheetService>>,
     timesheet_approval_service: Option<Arc<TimesheetApprovalService>>,
 }
@@ -70,6 +77,12 @@ impl AppStateBuilder {
     /// Create a new builder.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Set the RateCard service.
+    pub fn with_rate_card_service(mut self, service: Arc<RateCardService>) -> Self {
+        self.rate_card_service = Some(service);
+        self
     }
 
     /// Set the Timesheet service.
@@ -91,6 +104,7 @@ impl AppStateBuilder {
     /// Panics if any required service is not set.
     pub fn build(self) -> AppState {
         AppState {
+            rate_card_service: self.rate_card_service.expect("rate_card_service is required"),
             timesheet_service: self.timesheet_service.expect("timesheet_service is required"),
             timesheet_approval_service: self.timesheet_approval_service.expect("timesheet_approval_service is required"),
         }

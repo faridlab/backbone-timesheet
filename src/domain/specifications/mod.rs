@@ -6,6 +6,7 @@
 
 pub use backbone_core::{Specification, AndSpecification, OrSpecification, NotSpecification};
 
+pub mod rate_card_specification;
 pub mod timesheet_specification;
 pub mod timesheet_approval_specification;
 

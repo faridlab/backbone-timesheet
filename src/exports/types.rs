@@ -12,6 +12,64 @@ use rust_decimal::Decimal;
 use crate::domain::entity::*;
 
 // ============================================================================
+// RATECARD TYPES
+// ============================================================================
+
+/// Type-safe ID for RateCard
+///
+/// Use this instead of raw Uuid for type safety across modules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct RateCardId(pub Uuid);
+
+impl RateCardId {
+    pub fn new(id: Uuid) -> Self {
+        Self(id)
+    }
+
+    pub fn into_inner(self) -> Uuid {
+        self.0
+    }
+}
+
+impl From<Uuid> for RateCardId {
+    fn from(id: Uuid) -> Self {
+        Self(id)
+    }
+}
+
+impl From<RateCardId> for Uuid {
+    fn from(id: RateCardId) -> Self {
+        id.0
+    }
+}
+
+/// Data transfer object for RateCard
+///
+/// This is the public representation of RateCard for other modules.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateCardDto {
+    pub id: RateCardId,
+    pub employee_id: Uuid,
+    pub activity_type_id: Option<Uuid>,
+    pub billing_rate: Option<Decimal>,
+    pub costing_rate: Option<Decimal>,
+    pub valid_from: NaiveDate,
+    pub metadata: serde_json::Value,
+}
+
+/// Summary view of RateCard for list displays
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateCardSummary {
+    pub id: RateCardId,
+}
+
+/// Reference to RateCard for foreign key relationships
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RateCardRef {
+    pub id: RateCardId,
+}
+
+// ============================================================================
 // TIMESHEET TYPES
 // ============================================================================
 
