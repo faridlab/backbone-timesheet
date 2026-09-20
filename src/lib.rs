@@ -35,6 +35,9 @@ pub use infrastructure::persistence::*;
 pub use application::service::TimesheetService;
 pub use application::service::TimesheetApprovalService;
 
+// Re-exports - Validation
+pub use application::validator::{ValidationError, ValidationResult};
+
 // Re-exports - Workflows
 pub use application::workflows::*;
 

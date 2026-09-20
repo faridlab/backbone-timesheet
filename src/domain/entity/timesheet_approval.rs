@@ -298,16 +298,6 @@ impl backbone_orm::EntityRepoMeta for TimesheetApproval {
     fn search_fields() -> &'static [&'static str] {
         &[]
     }
-    /// `?include=` hydration: the employee rows behind `employeeId` (and the
-    /// approver, which lives in the same table). Schema-qualified because the
-    /// employee entity belongs to a sibling module — the bare name would not
-    /// resolve through the caller's schema.
-    fn relations() -> &'static [(&'static str, &'static str, &'static str)] {
-        &[
-            ("employee", "employee.employees", "employeeId"),
-            ("approver", "employee.employees", "approverId"),
-        ]
-    }
 }
 
 /// Builder for TimesheetApproval entity

@@ -763,6 +763,7 @@ components:
         - unit_amount
         - currency
         - is_billable
+        - row_status
         - billable_amount
         - costing_amount
         - metadata
@@ -819,6 +820,8 @@ components:
           type: string
         is_billable:
           type: boolean
+        row_status:
+          type: string
         billable_amount:
           type: string
         costing_amount:
@@ -858,6 +861,7 @@ components:
         - unit_amount
         - currency
         - is_billable
+        - row_status
         - billable_amount
         - costing_amount
         - metadata
@@ -911,6 +915,8 @@ components:
           type: string
         is_billable:
           type: boolean
+        row_status:
+          type: string
         billable_amount:
           type: string
         costing_amount:
@@ -937,6 +943,7 @@ components:
         - unit_amount
         - currency
         - is_billable
+        - row_status
         - billable_amount
         - costing_amount
         - metadata
@@ -990,6 +997,8 @@ components:
           type: string
         is_billable:
           type: boolean
+        row_status:
+          type: string
         billable_amount:
           type: string
         costing_amount:
@@ -1057,6 +1066,8 @@ components:
           type: string
         is_billable:
           type: boolean
+        row_status:
+          type: string
         billable_amount:
           type: string
         costing_amount:

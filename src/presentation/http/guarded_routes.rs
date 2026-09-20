@@ -289,6 +289,30 @@ async fn save_period(
     }
 }
 
+/// The one-day verdict: approve a single row under review.
+async fn row_approve(
+    State(svc): State<Arc<TimesheetWriteService>>,
+    _org: OrgContext,
+    Path(entry_id): Path<Uuid>,
+) -> axum::response::Response {
+    match svc.row_approve(entry_id).await {
+        Ok(dto) => (StatusCode::OK, Json(dto)).into_response(),
+        Err(e) => err_response(e),
+    }
+}
+
+/// The one-day send-back: the row becomes editable while the period stays pending.
+async fn row_return(
+    State(svc): State<Arc<TimesheetWriteService>>,
+    _org: OrgContext,
+    Path(entry_id): Path<Uuid>,
+) -> axum::response::Response {
+    match svc.row_return(entry_id).await {
+        Ok(dto) => (StatusCode::OK, Json(dto)).into_response(),
+        Err(e) => err_response(e),
+    }
+}
+
 // ── composition ────────────────────────────────────────────────────────────────
 
 /// Build the guarded timesheet router: validated entry + period writes, safe reads, NO generic
@@ -298,6 +322,8 @@ pub fn create_guarded_timesheet_routes(m: &TimesheetModule) -> Router {
         .route("/timesheets/entries", post(create_entry))
         .route("/timesheets/entries/:entry_id", put(update_entry))
         .route("/timesheets/entries/:entry_id", delete(delete_entry))
+        .route("/timesheets/rows/:entry_id/approve", post(row_approve))
+        .route("/timesheets/rows/:entry_id/return", post(row_return))
         .route("/timesheets/periods/save", post(save_period))
         .route("/timesheets/periods/submit", post(submit_period))
         .route("/timesheets/periods/approve", post(approve_period))

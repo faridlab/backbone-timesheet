@@ -104,6 +104,11 @@ models:
         attributes: ["@required", "@default(true)"]
         description: "Billability FLAG only — the billability GATE is the approval cycle (timesheet_approvals)"
 
+      row_status:
+        type: TimesheetRowStatus
+        attributes: ["@required", "@default(draft)"]
+        description: "The row's OWN review state: draft → approved | returned (a manager's one-day verdict); returned → draft on edit. The period stays the coarse grain; this is the partial-approval carve."
+
       billable_amount:
         type: decimal
         attributes: ["@required", "@default(0)", "@precision(18,2)", "@non_negative"]
@@ -156,6 +161,17 @@ models:
         description: "One live leave row per leave request per day (regeneration fence)"
 
 enums:
+  - name: TimesheetRowStatus
+    description: "The row's own review state, beside the period's coarse grain."
+    variants:
+      - name: draft
+        default: true
+        description: "Awaiting review"
+      - name: approved
+        description: "The manager approved this row on its own"
+      - name: returned
+        description: "Sent back for correction — editable even while the period is under review"
+
   - name: TimesheetType
     description: "Timesheet category"
     variants:

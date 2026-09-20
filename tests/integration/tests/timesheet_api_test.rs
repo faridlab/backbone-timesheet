@@ -9,7 +9,6 @@ use serde_json::{json, Value};
 use uuid::Uuid;
 
 use super::crud_test_base::{CrudTestConfig, GenericCrudTest, TestDataGenerator};
-use crate::integration::framework::ApiTest;
 use crate::integration::helpers::CommonUtils;
 
 // ============================================================================
@@ -40,6 +39,7 @@ impl TestDataGenerator for TimesheetTestData {
             "billing_rate": null,
             "costing_rate": null,
             "is_billable": false,
+            "row_status": "draft",
             "billable_amount": 0,
             "costing_amount": 0,
             "invoice_id": null,
@@ -68,6 +68,7 @@ impl TestDataGenerator for TimesheetTestData {
             "billing_rate": null,
             "costing_rate": null,
             "is_billable": false,
+            "row_status": "draft",
             "billable_amount": 0,
             "costing_amount": 0,
             "invoice_id": null,

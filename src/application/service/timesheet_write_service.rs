@@ -109,6 +109,12 @@ pub enum TimesheetError {
     /// One batch verb's hard ceiling: a save set this large is a client defect, not a grid.
     #[error("the batch exceeds 500 operations — split the save")]
     BatchTooLarge,
+    /// A row verdict requires the period to be under review (submitted, pending).
+    #[error("the row's period is not under review")]
+    RowNotUnderReview,
+    /// The row's own state does not allow this transition.
+    #[error("the row's own state does not allow this transition")]
+    RowTransition,
     /// Every row in one batch must land in the period the batch names.
     #[error("an operation targets a date outside the named period")]
     EntryOutsidePeriod,
@@ -152,6 +158,8 @@ impl TimesheetError {
             Self::EmptyPeriod => "empty_period",
             Self::EmptyBatch => "empty_batch",
             Self::BatchTooLarge => "batch_too_large",
+            Self::RowNotUnderReview => "row_not_under_review",
+            Self::RowTransition => "row_transition",
             Self::EntryOutsidePeriod => "entry_outside_period",
             Self::WindowNotOpen => "window_not_open",
             Self::ApprovalNotGranted => "approval_not_granted",
@@ -170,7 +178,7 @@ impl TimesheetError {
             Self::PeriodClosed
             | Self::PeriodLocked | Self::PeriodAlreadySubmitted | Self::NotPending
             | Self::EntryOverlap | Self::ApprovalNotGranted | Self::InvoicedRowLocked
-            | Self::LeaveRowBilled => 409,
+            | Self::LeaveRowBilled | Self::RowNotUnderReview | Self::RowTransition => 409,
             Self::InvalidRange | Self::BadEntryType | Self::NegativeHours | Self::EmptyPeriod
             | Self::WindowNotOpen | Self::EmptyBatch | Self::BatchTooLarge
             | Self::EntryOutsidePeriod => 422,
@@ -204,6 +212,8 @@ pub struct TimesheetEntryDto {
     pub costing_amount: Decimal,
     pub invoice_id: Option<Uuid>,
     pub source_timeoff_request_id: Option<Uuid>,
+    /// The row's own review state (draft/approved/returned).
+    pub row_status: String,
 }
 
 impl From<EntryRow> for TimesheetEntryDto {
@@ -228,6 +238,7 @@ impl From<EntryRow> for TimesheetEntryDto {
             costing_amount: e.costing_amount,
             invoice_id: e.invoice_id,
             source_timeoff_request_id: e.source_timeoff_request_id,
+            row_status: e.row_status,
         }
     }
 }
@@ -474,9 +485,29 @@ impl TimesheetWriteService {
         if snap.invoice_id.is_some() {
             return Err(TimesheetError::InvoicedRowLocked);
         }
-        self.assert_period_open_ym(&mut tx, snap.employee_id, snap.year, snap.month)
-            .await?;
-        self.assert_period_open(&mut tx, snap.employee_id, e.date).await?;
+        // The partial-approval carve: a RETURNED row stays editable while its
+        // period sits under review — the edit IS the response to the return,
+        // and it stamps the row back to draft. An APPROVED period still
+        // freezes everything (the verdict is done), and the destination
+        // period asserts as always.
+        if snap.row_status == "returned" {
+            if let Some(state) = self
+                .repo
+                .period_review_state(&mut tx, snap.employee_id, snap.year, snap.month)
+                .await?
+            {
+                if state == "approved" {
+                    return Err(TimesheetError::PeriodLocked);
+                }
+            }
+        } else {
+            self.assert_period_open_ym(&mut tx, snap.employee_id, snap.year, snap.month)
+                .await?;
+        }
+        let dest_differs = e.date.year() != snap.year || e.date.month() as i32 != snap.month;
+        if dest_differs {
+            self.assert_period_open(&mut tx, snap.employee_id, e.date).await?;
+        }
 
         // Plain-stored hours: windows win; else explicit input; else the row KEEPS its hours
         // (a remark-only edit must not zero a duration-only row).
@@ -725,6 +756,63 @@ impl TimesheetWriteService {
 
         tx.commit().await?;
         Ok(PeriodBatchSaved { created, updated, deleted })
+    }
+
+    // ─── the one-day verdicts (partial approval) ───────────────────────────────
+
+    /// Approve ONE row while its period sits under review — the 29-good-days
+    /// case: the manager blesses what is right and returns only what is
+    /// wrong. The period's own approval still concludes the month.
+    pub async fn row_approve(&self, entry_id: Uuid) -> Result<TimesheetEntryDto, TimesheetError> {
+        self.row_verdict(entry_id, &["draft", "returned"], "approved").await
+    }
+
+    /// Return ONE row for correction: the row becomes editable while the
+    /// period stays pending, and the employee's edit stamps it back to
+    /// draft. This is the "one wrong day" fix that used to require sending
+    /// back the whole month.
+    pub async fn row_return(&self, entry_id: Uuid) -> Result<TimesheetEntryDto, TimesheetError> {
+        self.row_verdict(entry_id, &["draft", "approved"], "returned").await
+    }
+
+    async fn row_verdict(
+        &self,
+        entry_id: Uuid,
+        from: &[&str],
+        to: &str,
+    ) -> Result<TimesheetEntryDto, TimesheetError> {
+        let mut tx = self.scoped_tx().await?;
+        let snap: EntrySnapshot = self
+            .repo
+            .entry_snapshot(&mut tx, entry_id)
+            .await?
+            .ok_or(TimesheetError::NotFound("timesheet entry"))?;
+        // Verdicts live in the REVIEW state only: a draft (unsubmitted)
+        // period has nothing to review, an approved period is concluded, a
+        // closed month is shut.
+        match self
+            .repo
+            .period_review_state(&mut tx, snap.employee_id, snap.year, snap.month)
+            .await?
+        {
+            Some(state) if state == "pending" => {}
+            Some(_) => return Err(TimesheetError::RowNotUnderReview),
+            None => return Err(TimesheetError::RowNotUnderReview),
+        }
+        if !from.contains(&snap.row_status.as_str()) {
+            return Err(TimesheetError::RowTransition);
+        }
+        let moved = self.repo.set_row_status(&mut tx, entry_id, &snap.row_status, to).await?;
+        if !moved {
+            return Err(TimesheetError::RowTransition);
+        }
+        let row = self
+            .repo
+            .entry_by_id(&mut tx, entry_id)
+            .await?
+            .ok_or(TimesheetError::NotFound("timesheet entry"))?;
+        tx.commit().await?;
+        Ok(row.into())
     }
 
     // ─── leave regeneration (authoritative over its OWN rows) ─────────────────

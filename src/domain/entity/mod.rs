@@ -4,6 +4,7 @@
 
 pub mod timesheet;
 pub mod timesheet_approval;
+pub mod timesheet_row_status;
 pub mod timesheet_type;
 pub mod timesheet_approval_status;
 
@@ -14,6 +15,7 @@ pub use timesheet::TimesheetId;
 pub use timesheet_approval::TimesheetApproval;
 pub use timesheet_approval::TimesheetApprovalBuilder;
 pub use timesheet_approval::TimesheetApprovalId;
+pub use timesheet_row_status::TimesheetRowStatus;
 pub use timesheet_type::TimesheetType;
 pub use timesheet_approval_status::TimesheetApprovalStatus;
 

@@ -1102,3 +1102,53 @@ async fn closed_period_refuses_every_write_until_reopened() {
     let s = req(app, &pool, company, "POST", "/timesheets/entries", entry_body(employee, date, 20, 21)).await;
     assert_eq!(s, StatusCode::CREATED, "an open month writes again");
 }
+
+// ─── TS-4c: the one-day verdict — partial approval under review ──────────────
+
+#[tokio::test]
+async fn one_day_verdict_partial_approval() {
+    let pool = pool().await;
+    let m = module(&pool).await;
+    let company = Uuid::new_v4();
+    let employee = Uuid::new_v4();
+    let (y, mo, date) = prev_month();
+    let app = create_guarded_timesheet_routes(&m);
+
+    // Two rows: one will be blessed, one returned.
+    let (s, good_id) = create_entry(app.clone(), &pool, company, employee, date).await;
+    assert_eq!(s, StatusCode::CREATED, "seed good row");
+    let (s, bad_id) = create_entry(app.clone(), &pool, company, employee, date + Duration::days(1)).await;
+    assert_eq!(s, StatusCode::CREATED, "seed bad row");
+
+    // Verdicts live ONLY under review: before submission they refuse.
+    let s = req(app.clone(), &pool, company, "POST", &format!("/timesheets/rows/{good_id}/approve"), String::new()).await;
+    assert_eq!(s, StatusCode::CONFLICT, "row verdict before submission must be 409 row_not_under_review");
+
+    let submit = format!(r#"{{"employeeId":"{employee}","year":{y},"month":{mo}}}"#);
+    let s = req(app.clone(), &pool, company, "POST", "/timesheets/periods/submit", submit).await;
+    assert_eq!(s, StatusCode::CREATED, "submit puts the month under review");
+
+    // Approve the good day; return the bad one.
+    let (s, j) = req_full(app.clone(), &pool, company, "POST", &format!("/timesheets/rows/{good_id}/approve"), String::new()).await;
+    assert_eq!(s, StatusCode::OK, "approve the good row");
+    assert_eq!(j["rowStatus"], "approved", "the good row carries its own verdict");
+    let (s, j) = req_full(app.clone(), &pool, company, "POST", &format!("/timesheets/rows/{bad_id}/return"), String::new()).await;
+    assert_eq!(s, StatusCode::OK, "return the bad row");
+    assert_eq!(j["rowStatus"], "returned", "the bad row is returned");
+
+    // The returned row is editable WHILE the period is pending; the edit
+    // stamps it back to draft. The good row stays frozen (409 period_locked).
+    let fix = entry_body(employee, date + Duration::days(1), 10, 14);
+    let (s, j) = req_full(app.clone(), &pool, company, "PUT", &format!("/timesheets/entries/{bad_id}"), fix).await;
+    assert_eq!(s, StatusCode::OK, "the returned row is editable under review");
+    assert_eq!(j["rowStatus"], "draft", "the edit returns the row to draft");
+    let s = req(app.clone(), &pool, company, "PUT", &format!("/timesheets/entries/{good_id}"), entry_body(employee, date, 9, 16)).await;
+    assert_eq!(s, StatusCode::CONFLICT, "the approved row stays frozen while pending");
+
+    // The period concludes as always; after approval every verdict is done.
+    let approve = format!(r#"{{"employeeId":"{employee}","year":{y},"month":{mo}}}"#);
+    let s = req(app.clone(), &pool, company, "POST", "/timesheets/periods/approve", approve).await;
+    assert_eq!(s, StatusCode::NO_CONTENT, "approve the month");
+    let s = req(app.clone(), &pool, company, "POST", &format!("/timesheets/rows/{bad_id}/return"), String::new()).await;
+    assert_eq!(s, StatusCode::CONFLICT, "no verdicts after the period concludes");
+}

@@ -51,6 +51,7 @@ pub struct EntryRow {
     pub costing_amount: Decimal,
     pub invoice_id: Option<Uuid>,
     pub source_timeoff_request_id: Option<Uuid>,
+    pub row_status: String,
 }
 
 /// The row's stored state an update decision needs: period coordinates for the
@@ -69,6 +70,8 @@ pub struct EntrySnapshot {
     pub billing_rate: Option<Decimal>,
     pub costing_rate: Option<Decimal>,
     pub is_billable: bool,
+    /// The row's own review state (draft/approved/returned).
+    pub row_status: String,
 }
 
 /// The live period-approval row (if any) for one employee-period.
@@ -125,7 +128,7 @@ pub struct EntryWrite {
 /// The column list every entry RETURNING shares.
 const ENTRY_COLUMNS: &str = "id, employee_id, project_id, task_id, date, remark, time_start, time_end, entry_type, \
                              unit_amount, currency, activity_type_id, billing_rate, costing_rate, is_billable, \
-                             billable_amount, costing_amount, invoice_id, source_timeoff_request_id";
+                             billable_amount, costing_amount, invoice_id, source_timeoff_request_id,                              row_status::text AS row_status";
 
 /// One day of a leave regeneration: the date and the plain-stored hours for that day.
 #[derive(Debug, Clone)]
@@ -228,12 +231,75 @@ impl TimesheetWriteRepository {
     ) -> Result<Option<EntrySnapshot>, sqlx::Error> {
         sqlx::query_as::<_, EntrySnapshot>(
             r#"SELECT employee_id, year, month, invoice_id, time_start, time_end, unit_amount,
-                      activity_type_id, billing_rate, costing_rate, is_billable
+                      activity_type_id, billing_rate, costing_rate, is_billable,
+                      row_status::text AS row_status
                  FROM timesheet.timesheets
                 WHERE id = $1
                   AND (metadata->>'deleted_at') IS NULL"#,
         )
         .bind(entry_id)
+        .fetch_optional(conn)
+        .await
+    }
+
+    /// One live row by id (post-verdict re-read).
+    pub async fn entry_by_id(
+        &self,
+        conn: &mut PgConnection,
+        entry_id: Uuid,
+    ) -> Result<Option<EntryRow>, sqlx::Error> {
+        sqlx::query_as::<_, EntryRow>(
+            &format!(
+                r#"SELECT {ENTRY_COLUMNS} FROM timesheet.timesheets
+                    WHERE id = $1 AND (metadata->>'deleted_at') IS NULL"#
+            ),
+        )
+        .bind(entry_id)
+        .fetch_optional(conn)
+        .await
+    }
+
+    /// The manager's one-day verdict: move one row between its own review
+    /// states. Returns whether the row moved (a concurrent transition makes
+    /// the update match nothing — the caller reports convergence).
+    pub async fn set_row_status(
+        &self,
+        conn: &mut PgConnection,
+        entry_id: Uuid,
+        from: &str,
+        to: &str,
+    ) -> Result<bool, sqlx::Error> {
+        let result = sqlx::query(
+            r#"UPDATE timesheet.timesheets
+                  SET row_status = $3::timesheet_row_status
+                WHERE id = $1
+                  AND row_status = $2::timesheet_row_status
+                  AND (metadata->>'deleted_at') IS NULL"#,
+        )
+        .bind(entry_id)
+        .bind(from)
+        .bind(to)
+        .execute(conn)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// The row's own period review state ('pending'/'approved'/None), for the
+    /// row verbs' under-review requirement.
+    pub async fn period_review_state(
+        &self,
+        conn: &mut PgConnection,
+        employee_id: Uuid,
+        year: i32,
+        month: i32,
+    ) -> Result<Option<String>, sqlx::Error> {
+        sqlx::query_scalar::<_, String>(
+            r#"SELECT status::text FROM timesheet.timesheet_approvals
+                WHERE employee_id = $1 AND year = $2 AND month = $3"#,
+        )
+        .bind(employee_id)
+        .bind(year)
+        .bind(month)
         .fetch_optional(conn)
         .await
     }
@@ -297,6 +363,19 @@ impl TimesheetWriteRepository {
         w: &EntryWrite,
         now: DateTime<Utc>,
     ) -> Result<Option<EntryRow>, sqlx::Error> {
+        // A corrected row returns to draft: the edit IS the response to the
+        // return.
+        Self::update_entry_inner(conn, entry_id, w, now, "draft").await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn update_entry_inner(
+        conn: &mut PgConnection,
+        entry_id: Uuid,
+        w: &EntryWrite,
+        now: DateTime<Utc>,
+        row_status: &str,
+    ) -> Result<Option<EntryRow>, sqlx::Error> {
         sqlx::query_as::<_, EntryRow>(
             &format!(r#"UPDATE timesheet.timesheets
                   SET project_id = $2, task_id = $3, year = $4, month = $5, date = $6,
@@ -305,6 +384,7 @@ impl TimesheetWriteRepository {
                       unit_amount = $11, activity_type_id = $12,
                       billing_rate = $13, costing_rate = $14, is_billable = $15,
                       billable_amount = $16, costing_amount = $17,
+                      row_status = $19::timesheet_row_status,
                       metadata = metadata || jsonb_build_object('updated_at', to_jsonb($18::timestamptz))
                 WHERE id = $1
                   AND (metadata->>'deleted_at') IS NULL
@@ -328,6 +408,7 @@ impl TimesheetWriteRepository {
         .bind(w.billable_amount)
         .bind(w.costing_amount)
         .bind(now)
+        .bind(row_status)
         .fetch_optional(conn)
         .await
     }

@@ -65,6 +65,7 @@ pub struct TimesheetDto {
     pub billing_rate: Option<Decimal>,
     pub costing_rate: Option<Decimal>,
     pub is_billable: bool,
+    pub row_status: TimesheetRowStatus,
     pub billable_amount: Decimal,
     pub costing_amount: Decimal,
     pub invoice_id: Option<Uuid>,

@@ -19,6 +19,7 @@ use validator::Validate;
 
 use crate::domain::entity::Timesheet;
 use crate::domain::entity::AuditMetadata;
+use crate::domain::entity::TimesheetRowStatus;
 use crate::domain::entity::TimesheetType;
 
 // =============================================================================
@@ -68,6 +69,8 @@ pub struct CreateTimesheetDto {
     #[cfg_attr(feature = "openapi", schema(example = true))]
     #[serde(alias = "is_billable")]
     pub is_billable: bool,
+    #[serde(alias = "row_status")]
+    pub row_status: TimesheetRowStatus,
     #[serde(alias = "billable_amount")]
     pub billable_amount: Decimal,
     #[serde(alias = "costing_amount")]
@@ -125,6 +128,8 @@ pub struct UpdateTimesheetDto {
     #[cfg_attr(feature = "openapi", schema(example = true))]
     #[serde(alias = "is_billable")]
     pub is_billable: bool,
+    #[serde(alias = "row_status")]
+    pub row_status: TimesheetRowStatus,
     #[serde(alias = "billable_amount")]
     pub billable_amount: Decimal,
     #[serde(alias = "costing_amount")]
@@ -186,6 +191,8 @@ pub struct PatchTimesheetDto {
     #[cfg_attr(feature = "openapi", schema(example = true))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "is_billable")]
     pub is_billable: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", alias = "row_status")]
+    pub row_status: Option<TimesheetRowStatus>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "billable_amount")]
     pub billable_amount: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "costing_amount")]
@@ -199,7 +206,7 @@ pub struct PatchTimesheetDto {
 impl PatchTimesheetDto {
     /// Check if any field is set
     pub fn has_changes(&self) -> bool {
-        self.employee_id.is_some() || self.project_id.is_some() || self.task_id.is_some() || self.year.is_some() || self.month.is_some() || self.date.is_some() || self.remark.is_some() || self.time_start.is_some() || self.time_end.is_some() || self.entry_type.is_some() || self.unit_amount.is_some() || self.currency.is_some() || self.activity_type_id.is_some() || self.billing_rate.is_some() || self.costing_rate.is_some() || self.is_billable.is_some() || self.billable_amount.is_some() || self.costing_amount.is_some() || self.invoice_id.is_some() || self.source_timeoff_request_id.is_some()
+        self.employee_id.is_some() || self.project_id.is_some() || self.task_id.is_some() || self.year.is_some() || self.month.is_some() || self.date.is_some() || self.remark.is_some() || self.time_start.is_some() || self.time_end.is_some() || self.entry_type.is_some() || self.unit_amount.is_some() || self.currency.is_some() || self.activity_type_id.is_some() || self.billing_rate.is_some() || self.costing_rate.is_some() || self.is_billable.is_some() || self.row_status.is_some() || self.billable_amount.is_some() || self.costing_amount.is_some() || self.invoice_id.is_some() || self.source_timeoff_request_id.is_some()
     }
 }
 
@@ -239,6 +246,7 @@ pub struct TimesheetResponseDto {
     pub costing_rate: Option<Decimal>,
     #[cfg_attr(feature = "openapi", schema(example = true))]
     pub is_billable: bool,
+    pub row_status: TimesheetRowStatus,
     pub billable_amount: Decimal,
     pub costing_amount: Decimal,
     pub invoice_id: Option<Uuid>,
@@ -330,6 +338,7 @@ impl From<Timesheet> for TimesheetResponseDto {
             billing_rate: entity.billing_rate,
             costing_rate: entity.costing_rate,
             is_billable: entity.is_billable,
+            row_status: entity.row_status,
             billable_amount: entity.billable_amount,
             costing_amount: entity.costing_amount,
             invoice_id: entity.invoice_id,
@@ -372,6 +381,7 @@ impl From<CreateTimesheetDto> for Timesheet {
             billing_rate: dto.billing_rate,
             costing_rate: dto.costing_rate,
             is_billable: dto.is_billable,
+            row_status: dto.row_status,
             billable_amount: dto.billable_amount,
             costing_amount: dto.costing_amount,
             invoice_id: dto.invoice_id,
@@ -401,6 +411,7 @@ impl From<&Timesheet> for TimesheetResponseDto {
             billing_rate: entity.billing_rate.clone(),
             costing_rate: entity.costing_rate.clone(),
             is_billable: entity.is_billable.clone(),
+            row_status: entity.row_status.clone(),
             billable_amount: entity.billable_amount.clone(),
             costing_amount: entity.costing_amount.clone(),
             invoice_id: entity.invoice_id.clone(),
@@ -434,6 +445,7 @@ impl backbone_core::ApplyUpdateDto<UpdateTimesheetDto> for Timesheet {
         self.billing_rate = dto.billing_rate;
         self.costing_rate = dto.costing_rate;
         self.is_billable = dto.is_billable;
+        self.row_status = dto.row_status;
         self.billable_amount = dto.billable_amount;
         self.costing_amount = dto.costing_amount;
         self.invoice_id = dto.invoice_id;

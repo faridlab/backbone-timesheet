@@ -5,6 +5,7 @@ use uuid::Uuid;
 use rust_decimal::Decimal;
 
 use super::TimesheetType;
+use super::TimesheetRowStatus;
 use super::AuditMetadata;
 
 /// Strongly-typed ID for Timesheet
@@ -67,6 +68,7 @@ pub struct Timesheet {
     pub billing_rate: Option<Decimal>,
     pub costing_rate: Option<Decimal>,
     pub is_billable: bool,
+    pub row_status: TimesheetRowStatus,
     pub billable_amount: Decimal,
     pub costing_amount: Decimal,
     pub invoice_id: Option<Uuid>,
@@ -83,7 +85,7 @@ impl Timesheet {
     }
 
     /// Create a new Timesheet with required fields
-    pub fn new(employee_id: Uuid, year: i32, month: i32, date: NaiveDate, entry_type: TimesheetType, unit_amount: Decimal, currency: String, is_billable: bool, billable_amount: Decimal, costing_amount: Decimal) -> Self {
+    pub fn new(employee_id: Uuid, year: i32, month: i32, date: NaiveDate, entry_type: TimesheetType, unit_amount: Decimal, currency: String, is_billable: bool, row_status: TimesheetRowStatus, billable_amount: Decimal, costing_amount: Decimal) -> Self {
         Self {
             id: Uuid::new_v4(),
             employee_id,
@@ -102,6 +104,7 @@ impl Timesheet {
             billing_rate: None,
             costing_rate: None,
             is_billable,
+            row_status,
             billable_amount,
             costing_amount,
             invoice_id: None,
@@ -281,6 +284,9 @@ impl Timesheet {
                 "is_billable" => {
                     if let Ok(v) = serde_json::from_value(value) { self.is_billable = v; }
                 }
+                "row_status" => {
+                    if let Ok(v) = serde_json::from_value(value) { self.row_status = v; }
+                }
                 "billable_amount" => {
                     if let Ok(v) = serde_json::from_value(value) { self.billable_amount = v; }
                 }
@@ -354,16 +360,11 @@ impl backbone_orm::EntityRepoMeta for Timesheet {
         m.insert("invoice_id".to_string(), "uuid".to_string());
         m.insert("source_timeoff_request_id".to_string(), "uuid".to_string());
         m.insert("entry_type".to_string(), "timesheet_type".to_string());
+        m.insert("row_status".to_string(), "timesheet_row_status".to_string());
         m
     }
     fn search_fields() -> &'static [&'static str] {
         &["currency"]
-    }
-    /// `?include=` hydration for the entry rows' employee (the people column
-    /// every grid wants). Schema-qualified: the entity lives in a sibling
-    /// module's schema.
-    fn relations() -> &'static [(&'static str, &'static str, &'static str)] {
-        &[("employee", "employee.employees", "employeeId")]
     }
 }
 
@@ -389,6 +390,7 @@ pub struct TimesheetBuilder {
     billing_rate: Option<Decimal>,
     costing_rate: Option<Decimal>,
     is_billable: Option<bool>,
+    row_status: Option<TimesheetRowStatus>,
     billable_amount: Option<Decimal>,
     costing_amount: Option<Decimal>,
     invoice_id: Option<Uuid>,
@@ -492,6 +494,12 @@ impl TimesheetBuilder {
         self
     }
 
+    /// Set the row_status field (default: `TimesheetRowStatus::default()`)
+    pub fn row_status(mut self, value: TimesheetRowStatus) -> Self {
+        self.row_status = Some(value);
+        self
+    }
+
     /// Set the billable_amount field (default: `Decimal::from(0)`)
     pub fn billable_amount(mut self, value: Decimal) -> Self {
         self.billable_amount = Some(value);
@@ -543,6 +551,7 @@ impl TimesheetBuilder {
             billing_rate: self.billing_rate,
             costing_rate: self.costing_rate,
             is_billable: self.is_billable.unwrap_or(true),
+            row_status: self.row_status.unwrap_or_default(),
             billable_amount: self.billable_amount.unwrap_or(Decimal::from(0)),
             costing_amount: self.costing_amount.unwrap_or(Decimal::from(0)),
             invoice_id: self.invoice_id,
