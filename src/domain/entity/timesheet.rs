@@ -361,6 +361,11 @@ impl backbone_orm::EntityRepoMeta for Timesheet {
         m.insert("source_timeoff_request_id".to_string(), "uuid".to_string());
         m.insert("entry_type".to_string(), "timesheet_type".to_string());
         m.insert("row_status".to_string(), "timesheet_row_status".to_string());
+        // Temporal cast hints: without them a filter like date[eq]=YYYY-MM-DD
+        // binds text and Postgres has no implicit temporal-vs-text operator.
+        m.insert("date".to_string(), "date".to_string());
+        m.insert("time_start".to_string(), "timestamptz".to_string());
+        m.insert("time_end".to_string(), "timestamptz".to_string());
         m
     }
     fn search_fields() -> &'static [&'static str] {
