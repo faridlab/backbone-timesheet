@@ -12,6 +12,7 @@ pub mod timesheet_service;
 pub mod timesheet_approval_service;
 
 // <<< CUSTOM
+pub mod overtime_ceiling_port;
 // The approvals seam (Wave 1 P2, H-6 — mirrors timeoff P1's port; Timesheet-prefixed types so a
 // host composing both modules imports no colliding names). Default Unwired keeps the module
 // behaving exactly as before until the app wires a real port against backbone-approvals.

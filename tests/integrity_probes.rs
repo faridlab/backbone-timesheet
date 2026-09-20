@@ -1152,3 +1152,71 @@ async fn one_day_verdict_partial_approval() {
     let s = req(app.clone(), &pool, company, "POST", &format!("/timesheets/rows/{bad_id}/return"), String::new()).await;
     assert_eq!(s, StatusCode::CONFLICT, "no verdicts after the period concludes");
 }
+
+// ─── TS-4d: the overtime pre-authorisation ceiling ─────────────────────────────
+
+/// A ceiling stub: fixed authorised hours per date.
+struct FixedCeiling(std::collections::HashMap<chrono::NaiveDate, rust_decimal::Decimal>);
+
+#[async_trait::async_trait]
+impl backbone_timesheet::application::service::overtime_ceiling_port::OvertimeCeiling
+    for FixedCeiling
+{
+    async fn authorised_hours(
+        &self,
+        _employee: Uuid,
+        date: chrono::NaiveDate,
+    ) -> Result<Option<rust_decimal::Decimal>, String> {
+        Ok(self.0.get(&date).copied())
+    }
+}
+
+#[tokio::test]
+async fn overtime_writes_respect_the_authorised_ceiling() {
+    let pool = pool().await;
+    let m = module(&pool).await;
+    let company = Uuid::new_v4();
+    let employee = Uuid::new_v4();
+    let (_, _, date) = prev_month();
+    let app = create_guarded_timesheet_routes(&m);
+
+    // Unwired (default): no ceiling — historical behaviour holds.
+    let ot = format!(
+        r#"{{"employeeId":"{employee}","date":"{date}","entryType":"overtime","hours":"3"}}"#
+    );
+    let (s, _) = req_full(app.clone(), &pool, company, "POST", "/timesheets/entries", ot.clone()).await;
+    assert_eq!(s, StatusCode::CREATED, "unwired ceiling allows overtime");
+
+    // Wire a 3h ceiling for that date: the existing row already consumes it.
+    let mut map = std::collections::HashMap::new();
+    map.insert(date, rust_decimal::Decimal::new(30, 1));
+    m.timesheet_write_service.set_overtime_ceiling(std::sync::Arc::new(FixedCeiling(map)));
+
+    // More overtime on the same day: beyond the ceiling.
+    let over = format!(
+        r#"{{"employeeId":"{employee}","date":"{date}","entryType":"overtime","hours":"1"}}"#
+    );
+    let (s, j) = req_full(app.clone(), &pool, company, "POST", "/timesheets/entries", over).await;
+    assert_eq!(s, StatusCode::CONFLICT, "beyond the ceiling must 409");
+    assert_eq!(j["error"], "overtime_exceeds_authorised", "typed refusal");
+
+    // A day with a ZERO ceiling (no authorisation at all).
+    let mut map2 = std::collections::HashMap::new();
+    map2.insert(date + Duration::days(2), rust_decimal::Decimal::ZERO);
+    m.timesheet_write_service.set_overtime_ceiling(std::sync::Arc::new(FixedCeiling(map2)));
+    let no_auth = format!(
+        r#"{{"employeeId":"{employee}","date":"{}","entryType":"overtime","hours":"1"}}"#,
+        date + Duration::days(2)
+    );
+    let (s, j) = req_full(app.clone(), &pool, company, "POST", "/timesheets/entries", no_auth).await;
+    assert_eq!(s, StatusCode::CONFLICT, "no authorisation must 409");
+    assert_eq!(j["error"], "overtime_preauth_missing", "typed refusal");
+
+    // Work entries never consult the ceiling.
+    let work = format!(
+        r#"{{"employeeId":"{employee}","date":"{}","hours":"8"}}"#,
+        date + Duration::days(3)
+    );
+    let (s, _) = req_full(app.clone(), &pool, company, "POST", "/timesheets/entries", work).await;
+    assert_eq!(s, StatusCode::CREATED, "work entries ignore the ceiling");
+}

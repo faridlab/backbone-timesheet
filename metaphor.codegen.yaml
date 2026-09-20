@@ -11,6 +11,9 @@
 # Add your hand-authored services, handlers, tests, and docs below as you write them.
 
 user_owned:
+
+  # The overtime pre-authorisation ceiling port (write gate).
+  - "src/application/service/overtime_ceiling_port.rs"
   # The approvals seam (H-6, mirrors timeoff P1's port): TimesheetFiling trait + Unwired default.
   - "src/application/service/approvals_port.rs"
   # The rate-source seam: TimesheetRateSource trait + Unwired default (resolves nothing —

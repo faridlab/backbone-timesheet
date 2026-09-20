@@ -115,6 +115,12 @@ pub enum TimesheetError {
     /// The row's own state does not allow this transition.
     #[error("the row's own state does not allow this transition")]
     RowTransition,
+    /// Overtime with no approved pre-authorisation behind it.
+    #[error("overtime needs an approved pre-authorisation for that date first")]
+    OvertimePreauthMissing,
+    /// The day's claimed overtime exceeds the authorised ceiling.
+    #[error("the day's overtime exceeds the authorised ceiling")]
+    OvertimeExceedsAuthorised,
     /// Every row in one batch must land in the period the batch names.
     #[error("an operation targets a date outside the named period")]
     EntryOutsidePeriod,
@@ -160,6 +166,8 @@ impl TimesheetError {
             Self::BatchTooLarge => "batch_too_large",
             Self::RowNotUnderReview => "row_not_under_review",
             Self::RowTransition => "row_transition",
+            Self::OvertimePreauthMissing => "overtime_preauth_missing",
+            Self::OvertimeExceedsAuthorised => "overtime_exceeds_authorised",
             Self::EntryOutsidePeriod => "entry_outside_period",
             Self::WindowNotOpen => "window_not_open",
             Self::ApprovalNotGranted => "approval_not_granted",
@@ -178,7 +186,8 @@ impl TimesheetError {
             Self::PeriodClosed
             | Self::PeriodLocked | Self::PeriodAlreadySubmitted | Self::NotPending
             | Self::EntryOverlap | Self::ApprovalNotGranted | Self::InvoicedRowLocked
-            | Self::LeaveRowBilled | Self::RowNotUnderReview | Self::RowTransition => 409,
+            | Self::LeaveRowBilled | Self::RowNotUnderReview | Self::RowTransition
+            | Self::OvertimePreauthMissing | Self::OvertimeExceedsAuthorised => 409,
             Self::InvalidRange | Self::BadEntryType | Self::NegativeHours | Self::EmptyPeriod
             | Self::WindowNotOpen | Self::EmptyBatch | Self::BatchTooLarge
             | Self::EntryOutsidePeriod => 422,
@@ -319,6 +328,10 @@ pub struct TimesheetWriteService {
     /// The closed-period gate. Defaults to [`UnlockedPeriods`]; the composing
     /// service swaps in its adapter over its own period-lock table.
     period_gate: RwLock<Arc<dyn TimesheetPeriodGate>>,
+    /// The overtime pre-authorisation ceiling. Defaults to [`NoCeiling`]
+    /// (unwired = no enforcement); the composing service swaps in its
+    /// adapter over the attendance pre-authorisations.
+    overtime_ceiling: RwLock<Arc<dyn super::overtime_ceiling_port::OvertimeCeiling>>,
     /// The approvals seam (Wave 1 P2, H-6). Defaults to [`UnwiredTimesheetApprovals`]; the host
     /// swaps in its adapter against backbone-approvals once H-9 lands (ADR-0004: no crate edge).
     /// RwLock (not tokio's) because reads are cloned-and-dropped with no await while held, and
@@ -337,6 +350,7 @@ impl TimesheetWriteService {
             repo: TimesheetWriteRepository,
             approvals: RwLock::new(Arc::new(UnwiredTimesheetApprovals)),
             period_gate: RwLock::new(Arc::new(UnlockedPeriods)),
+            overtime_ceiling: RwLock::new(Arc::new(super::overtime_ceiling_port::NoCeiling)),
             rates: RwLock::new(Arc::new(UnwiredRateSource)),
         }
     }
@@ -367,6 +381,18 @@ impl TimesheetWriteService {
 
     fn period_gate(&self) -> Arc<dyn TimesheetPeriodGate> {
         self.period_gate.read().expect("period gate lock poisoned").clone()
+    }
+
+    /// Wire the overtime pre-authorisation ceiling.
+    pub fn set_overtime_ceiling(
+        &self,
+        ceiling: Arc<dyn super::overtime_ceiling_port::OvertimeCeiling>,
+    ) {
+        *self.overtime_ceiling.write().expect("overtime ceiling lock poisoned") = ceiling;
+    }
+
+    fn overtime_ceiling(&self) -> Arc<dyn super::overtime_ceiling_port::OvertimeCeiling> {
+        self.overtime_ceiling.read().expect("overtime ceiling lock poisoned").clone()
     }
 
     fn rates(&self) -> Arc<dyn TimesheetRateSource> {
@@ -422,6 +448,13 @@ impl TimesheetWriteService {
 
         let mut tx = self.scoped_tx().await?;
         self.assert_period_open(&mut tx, e.employee_id, e.date).await?;
+        if e.entry_type == "overtime" {
+            let hours = hours_from_windows(e.time_start, e.time_end)
+                .or(e.hours.map(|h| h.round_dp(2)))
+                .unwrap_or(Decimal::ZERO);
+            self.assert_overtime_authorised(&mut tx, e.employee_id, e.date, hours, None)
+                .await?;
+        }
 
         // A create is a qualifying write by definition: resolve rates through the port and
         // stamp the snapshots in the same transaction (employee resolution IS the row's
@@ -507,6 +540,13 @@ impl TimesheetWriteService {
         let dest_differs = e.date.year() != snap.year || e.date.month() as i32 != snap.month;
         if dest_differs {
             self.assert_period_open(&mut tx, snap.employee_id, e.date).await?;
+        }
+        if e.entry_type == "overtime" {
+            let hours = hours_from_windows(e.time_start, e.time_end)
+                .or(e.hours.map(|h| h.round_dp(2)))
+                .unwrap_or(snap.unit_amount);
+            self.assert_overtime_authorised(&mut tx, snap.employee_id, e.date, hours, Some(entry_id))
+                .await?;
         }
 
         // Plain-stored hours: windows win; else explicit input; else the row KEEPS its hours
@@ -640,6 +680,10 @@ impl TimesheetWriteService {
                 .unwrap_or(Decimal::ZERO);
             let is_billable = e.is_billable.unwrap_or(true);
             let rates = self.resolve_rates(employee_id, e.activity_type_id).await?;
+            if e.entry_type == "overtime" {
+                self.assert_overtime_authorised(&mut tx, employee_id, e.date, unit_amount, None)
+                    .await?;
+            }
             let (billable_amount, costing_amount) =
                 amounts_from(unit_amount, is_billable, rates.billing_rate, rates.costing_rate);
             let w = EntryWrite {
@@ -1034,6 +1078,56 @@ impl TimesheetWriteService {
     ) -> Result<(), TimesheetError> {
         self.assert_period_open_ym(conn, employee_id, date.year(), date.month() as i32)
             .await
+    }
+
+    /// The overtime write gate: an overtime entry needs the day's AUTHORIZED
+    /// ceiling (from the pre-authorisation record) to cover the day's total
+    /// claimed overtime — the existing live rows plus the incoming one.
+    /// `exclude` is the entry being replaced (an update counts the new total,
+    /// not the old row it supersedes).
+    async fn assert_overtime_authorised(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        employee_id: Uuid,
+        date: chrono::NaiveDate,
+        incoming_hours: Decimal,
+        exclude: Option<Uuid>,
+    ) -> Result<(), TimesheetError> {
+        let existing: Decimal = sqlx::query_scalar(
+            r#"SELECT COALESCE(SUM(unit_amount), 0)
+                 FROM timesheet.timesheets
+                WHERE employee_id = $1 AND date = $2 AND entry_type = 'overtime'
+                  AND (metadata->>'deleted_at') IS NULL
+                  AND ($3::uuid IS NULL OR id <> $3)"#,
+        )
+        .bind(employee_id)
+        .bind(date)
+        .bind(exclude)
+        .fetch_one(&mut *conn)
+        .await?;
+        let total = existing + incoming_hours;
+        if total <= Decimal::ZERO {
+            return Ok(());
+        }
+        match self
+            .overtime_ceiling()
+            .authorised_hours(employee_id, date)
+            .await
+        {
+            // Unwired: no ceiling knowable — allow (the composition has not
+            // opted into enforcement).
+            Ok(None) => Ok(()),
+            Err(_) => Ok(()),
+            Ok(Some(ceiling)) => {
+                if ceiling <= Decimal::ZERO {
+                    return Err(TimesheetError::OvertimePreauthMissing);
+                }
+                if total > ceiling {
+                    return Err(TimesheetError::OvertimeExceedsAuthorised);
+                }
+                Ok(())
+            }
+        }
     }
 
     async fn assert_period_open_ym(
