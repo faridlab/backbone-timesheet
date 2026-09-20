@@ -371,6 +371,12 @@ impl backbone_orm::EntityRepoMeta for Timesheet {
     fn search_fields() -> &'static [&'static str] {
         &["currency"]
     }
+    /// Cross-module to-one relation: the employee the entry belongs to. The
+    /// schema-qualified name passes the qualifier through untouched; hydration
+    /// rides the scoped fetch so the org fence applies to the related row.
+    fn relations() -> &'static [(&'static str, &'static str, &'static str)] {
+        &[("employee", "employee.employees", "employeeId")]
+    }
 }
 
 /// Builder for Timesheet entity

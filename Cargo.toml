@@ -1,6 +1,6 @@
 [package]
 name = "backbone-timesheet"
-version = "0.4.14"
+version = "0.4.15"
 edition = "2021"
 description = "Minimal Backbone Framework module skeleton"
 
