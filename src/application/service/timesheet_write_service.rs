@@ -84,6 +84,10 @@ pub enum TimesheetError {
     /// The period's approval row is pending or approved — its entries are frozen.
     #[error("period is submitted or approved — entries are frozen")]
     PeriodLocked,
+    /// The unit-wide close decision shut this month (the composition's
+    /// period-lock record): nothing may be written into it until a reopen.
+    #[error("the period is closed for the unit — reopen it before writing")]
+    PeriodClosed,
     #[error("period already has a pending or approved submission")]
     PeriodAlreadySubmitted,
     #[error("period is not pending — only a pending period can transition")]
@@ -138,6 +142,7 @@ impl TimesheetError {
         match self {
             Self::NotFound(_) => "not_found",
             Self::PeriodLocked => "period_locked",
+            Self::PeriodClosed => "period_closed",
             Self::PeriodAlreadySubmitted => "period_already_submitted",
             Self::NotPending => "not_pending",
             Self::EntryOverlap => "entry_overlap",
@@ -162,7 +167,8 @@ impl TimesheetError {
     pub fn http_status(&self) -> u16 {
         match self {
             Self::NotFound(_) => 404,
-            Self::PeriodLocked | Self::PeriodAlreadySubmitted | Self::NotPending
+            Self::PeriodClosed
+            | Self::PeriodLocked | Self::PeriodAlreadySubmitted | Self::NotPending
             | Self::EntryOverlap | Self::ApprovalNotGranted | Self::InvoicedRowLocked
             | Self::LeaveRowBilled => 409,
             Self::InvalidRange | Self::BadEntryType | Self::NegativeHours | Self::EmptyPeriod
@@ -274,9 +280,34 @@ fn legacy_company_id() -> Result<Uuid, TimesheetError> {
 
 // ─── the service ──────────────────────────────────────────────────────────────
 
+/// The closed-period gate: the composition's own record that a month is SHUT
+/// (an operator's close decision, unit-wide — coarser than any employee's
+/// period row). The module owns no such entity (closing a month is
+/// composition knowledge); the default gate never locks, so an un-wired
+/// composition behaves exactly as before.
+#[async_trait::async_trait]
+pub trait TimesheetPeriodGate: Send + Sync {
+    /// True when the acting unit's (year, month) is closed. Runs under the
+    /// caller's ambient org scope — the gate resolves the unit itself.
+    async fn unit_period_closed(&self, year: i32, month: i32) -> bool;
+}
+
+/// The unwired gate: nothing is ever closed.
+pub struct UnlockedPeriods;
+
+#[async_trait::async_trait]
+impl TimesheetPeriodGate for UnlockedPeriods {
+    async fn unit_period_closed(&self, _year: i32, _month: i32) -> bool {
+        false
+    }
+}
+
 pub struct TimesheetWriteService {
     pool: PgPool,
     repo: TimesheetWriteRepository,
+    /// The closed-period gate. Defaults to [`UnlockedPeriods`]; the composing
+    /// service swaps in its adapter over its own period-lock table.
+    period_gate: RwLock<Arc<dyn TimesheetPeriodGate>>,
     /// The approvals seam (Wave 1 P2, H-6). Defaults to [`UnwiredTimesheetApprovals`]; the host
     /// swaps in its adapter against backbone-approvals once H-9 lands (ADR-0004: no crate edge).
     /// RwLock (not tokio's) because reads are cloned-and-dropped with no await while held, and
@@ -294,6 +325,7 @@ impl TimesheetWriteService {
             pool,
             repo: TimesheetWriteRepository,
             approvals: RwLock::new(Arc::new(UnwiredTimesheetApprovals)),
+            period_gate: RwLock::new(Arc::new(UnlockedPeriods)),
             rates: RwLock::new(Arc::new(UnwiredRateSource)),
         }
     }
@@ -314,6 +346,16 @@ impl TimesheetWriteService {
     /// After this, qualifying writes snapshot resolved rates onto the row.
     pub fn set_rate_source(&self, port: Arc<dyn TimesheetRateSource>) {
         *self.rates.write().expect("rate source lock poisoned") = port;
+    }
+
+    /// Wire the closed-period gate (the composing app's adapter over its
+    /// period-lock table).
+    pub fn set_period_gate(&self, gate: Arc<dyn TimesheetPeriodGate>) {
+        *self.period_gate.write().expect("period gate lock poisoned") = gate;
+    }
+
+    fn period_gate(&self) -> Arc<dyn TimesheetPeriodGate> {
+        self.period_gate.read().expect("period gate lock poisoned").clone()
     }
 
     fn rates(&self) -> Arc<dyn TimesheetRateSource> {
@@ -748,6 +790,12 @@ impl TimesheetWriteService {
     ) -> Result<Uuid, TimesheetError> {
         let now = now.unwrap_or_else(Utc::now);
 
+        // The unit-wide close decision outranks the window: a shut month
+        // accepts no submissions either.
+        if self.period_gate().unit_period_closed(year, month).await {
+            return Err(TimesheetError::PeriodClosed);
+        }
+
         // Validation window: today must be past the month's last day.
         let last = last_day_of_month(year, month)
             .ok_or(TimesheetError::InvalidRange)?;
@@ -907,6 +955,11 @@ impl TimesheetWriteService {
         year: i32,
         month: i32,
     ) -> Result<(), TimesheetError> {
+        // The unit-wide close decision outranks any employee's period row:
+        // a shut month refuses every write before anything else is read.
+        if self.period_gate().unit_period_closed(year, month).await {
+            return Err(TimesheetError::PeriodClosed);
+        }
         if let Some(p) = self.repo.period_row(conn, employee_id, year, month).await? {
             if p.status == "pending" || p.status == "approved" {
                 return Err(TimesheetError::PeriodLocked);

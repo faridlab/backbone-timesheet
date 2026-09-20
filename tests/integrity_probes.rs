@@ -1056,3 +1056,49 @@ async fn ts_entry_type_timeoff_writes() {
     )).await;
     assert_eq!(shape, ("timeoff".into(), None, Decimal::ZERO));
 }
+
+// ─── TS-x: the unit-wide closed-period gate ───────────────────────────────────
+
+/// A gate that reports exactly one (year, month) closed.
+struct OneMonthGate(i32, i32);
+
+#[async_trait::async_trait]
+impl backbone_timesheet::application::service::timesheet_write_service::TimesheetPeriodGate
+    for OneMonthGate
+{
+    async fn unit_period_closed(&self, year: i32, month: i32) -> bool {
+        year == self.0 && month == self.1
+    }
+}
+
+#[tokio::test]
+async fn closed_period_refuses_every_write_until_reopened() {
+    let pool = pool().await;
+    let m = module(&pool).await;
+    let company = Uuid::new_v4();
+    let employee = Uuid::new_v4();
+    let (y, mo, date) = prev_month();
+    let app = create_guarded_timesheet_routes(&m);
+
+    let (s, _) = create_entry(app.clone(), &pool, company, employee, date).await;
+    assert_eq!(s, StatusCode::CREATED, "seed row before the close");
+
+    // The composition's close decision: the whole unit's month shuts.
+    m.timesheet_write_service.set_period_gate(std::sync::Arc::new(OneMonthGate(y, mo)));
+
+    let s = req(app.clone(), &pool, company, "POST", "/timesheets/entries", entry_body(employee, date, 18, 19)).await;
+    assert_eq!(s, StatusCode::CONFLICT, "create into a closed month must be 409 period_closed");
+    let s = req(app.clone(), &pool, company, "POST", "/timesheets/periods/save",
+        format!(r#"{{"employeeId":"{employee}","year":{y},"month":{mo},"create":[{{"employeeId":"{employee}","date":"{}","hours":"1"}}]}}"#, date + Duration::days(3))).await;
+    assert_eq!(s, StatusCode::CONFLICT, "the atomic week save refuses the whole set on a closed month");
+    let submit = format!(r#"{{"employeeId":"{employee}","year":{y},"month":{mo}}}"#);
+    let s = req(app.clone(), &pool, company, "POST", "/timesheets/periods/submit", submit).await;
+    assert_eq!(s, StatusCode::CONFLICT, "submit into a closed month must be 409 period_closed");
+
+    // Reopen (the composition drops the gate's closure): writes flow again.
+    m.timesheet_write_service.set_period_gate(std::sync::Arc::new(
+        backbone_timesheet::application::service::timesheet_write_service::UnlockedPeriods,
+    ));
+    let s = req(app, &pool, company, "POST", "/timesheets/entries", entry_body(employee, date, 20, 21)).await;
+    assert_eq!(s, StatusCode::CREATED, "an open month writes again");
+}
