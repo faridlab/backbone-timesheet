@@ -366,6 +366,10 @@ impl backbone_orm::EntityRepoMeta for Timesheet {
         m.insert("date".to_string(), "date".to_string());
         m.insert("time_start".to_string(), "timestamptz".to_string());
         m.insert("time_end".to_string(), "timestamptz".to_string());
+        // Integer cast hints: without them a filter like year[eq]=2026 binds
+        // text and Postgres has no implicit integer-vs-text operator.
+        m.insert("year".to_string(), "integer".to_string());
+        m.insert("month".to_string(), "integer".to_string());
         m
     }
     fn search_fields() -> &'static [&'static str] {

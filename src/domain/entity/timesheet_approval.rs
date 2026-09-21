@@ -293,7 +293,21 @@ impl backbone_orm::EntityRepoMeta for TimesheetApproval {
         m.insert("approver_id".to_string(), "uuid".to_string());
         m.insert("approval_request_id".to_string(), "uuid".to_string());
         m.insert("status".to_string(), "timesheet_approval_status".to_string());
+        // Numeric and temporal cast hints: without them a filter like
+        // year[eq]=2026 binds text and Postgres has no implicit
+        // integer/numeric/timestamptz-vs-text operator.
+        m.insert("year".to_string(), "integer".to_string());
+        m.insert("month".to_string(), "integer".to_string());
+        m.insert("billable_time".to_string(), "numeric".to_string());
+        m.insert("billable_cost".to_string(), "numeric".to_string());
+        m.insert("submitted_at".to_string(), "timestamptz".to_string());
         m
+    }
+    /// Cross-module to-one relation: the employee the approval covers. The
+    /// schema-qualified name passes the qualifier through untouched; hydration
+    /// rides the scoped fetch so the org fence applies to the related row.
+    fn relations() -> &'static [(&'static str, &'static str, &'static str)] {
+        &[("employee", "employee.employees", "employeeId")]
     }
     fn search_fields() -> &'static [&'static str] {
         &[]
