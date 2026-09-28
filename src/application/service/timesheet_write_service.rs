@@ -344,6 +344,12 @@ pub struct TimesheetWriteService {
 }
 
 impl TimesheetWriteService {
+    /// The database this verb runs on: the composer's request pool when
+    /// bound (tenant on a tenant lane), else the composed pool (ADR-0029).
+    fn rpool(&self) -> sqlx::PgPool {
+        crate::request_pool::current().unwrap_or_else(|| self.pool.clone())
+    }
+
     pub fn new(pool: PgPool) -> Self {
         Self {
             pool,
@@ -405,7 +411,7 @@ impl TimesheetWriteService {
     async fn scoped_tx(
         &self,
     ) -> Result<sqlx::Transaction<'static, sqlx::Postgres>, TimesheetError> {
-        let mut tx = self.pool.begin().await?;
+        let mut tx = self.rpool().begin().await?;
         if let Some(scope) = org_scope::current_org_scope() {
             org_scope::bind_org_scope_on(&mut tx, &scope).await?;
         }
