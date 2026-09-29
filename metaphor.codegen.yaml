@@ -11,6 +11,7 @@
 # Add your hand-authored services, handlers, tests, and docs below as you write them.
 
 user_owned:
+  - "src/request_pool.rs"
 
   # The overtime pre-authorisation ceiling port (write gate).
   - "src/application/service/overtime_ceiling_port.rs"
