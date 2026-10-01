@@ -1,8 +1,8 @@
 [package]
 name = "backbone-timesheet"
-version = "0.4.32"
+version = "0.4.33"
 edition = "2021"
-description = "Minimal Backbone Framework module skeleton"
+description = "Timesheets as analytic time lines: rate cards and rate snapshots, submission and approval, with a guard on invoiced rows"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/faridlab/backbone-timesheet"
 exclude = [".claude/", ".github/", "graphify-out/"]
