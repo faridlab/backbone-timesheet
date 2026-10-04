@@ -51,8 +51,8 @@ pub use application::workflows::*;
 // mirroring backbone-party).
 pub use application::service::{
     last_day_of_month, TimesheetEntryDto, TimesheetError, TimesheetWriteService,
-    TimesheetFiling, TimesheetFilingRequest, TimesheetSeamError, TimesheetVerdict,
-    UnwiredTimesheetApprovals,
+    TimesheetFiling, TimesheetFilingReceipt, TimesheetFilingRequest, TimesheetSeamError,
+    TimesheetVerdict, UnwiredTimesheetApprovals,
     RateLookup, RateSet, RateSourceError, TimesheetRateSource, UnwiredRateSource,
 };
 pub use infrastructure::persistence::{LeaveDayEntry, LeaveRowSync};

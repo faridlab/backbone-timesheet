@@ -59,6 +59,38 @@ pub struct TimesheetFilingRequest {
     pub submitted_at: DateTime<Utc>,
 }
 
+/// What a filing came back with: the request the period now points at, the engine's
+/// verdict on it at filing time, and whether the engine returned a request that already
+/// held this period instead of filing a new one.
+///
+/// A fresh filing is `Pending` under a policy, or `Approved` straight away for a tenant
+/// with no policy. A returned request should only ever be pending or approved, because
+/// the engine releases a period once its request is refused; the submit verb still
+/// refuses any receipt that carries an earlier decision rather than park the month on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TimesheetFilingReceipt {
+    /// The `approvals.ApprovalRequest.id` to stamp onto `timesheet_approvals.approval_request_id`.
+    pub request_id: Uuid,
+    /// The engine's verdict on that request when the filing returned.
+    pub verdict: TimesheetVerdict,
+    /// true when the engine handed back a request it already held for this period.
+    pub already_filed: bool,
+}
+
+impl TimesheetFilingReceipt {
+    /// Whether the receipt carries a decision taken before this submission: a refused
+    /// request, or an approval the engine handed back rather than granted just now.
+    /// Marking the month pending on such a request would leave it waiting on an
+    /// approver who will never see it.
+    pub fn already_decided(&self) -> bool {
+        match self.verdict {
+            TimesheetVerdict::Pending => false,
+            TimesheetVerdict::Approved => self.already_filed,
+            TimesheetVerdict::Rejected | TimesheetVerdict::Cancelled => true,
+        }
+    }
+}
+
 /// Errors from the approvals seam. `Unwired` is the load-bearing variant: it is
 /// what the default [`UnwiredTimesheetApprovals`] returns, and what `approve_period`
 /// converts into a fail-closed error when a period carries an `approval_request_id`
@@ -77,9 +109,12 @@ pub enum TimesheetSeamError {
 /// app against backbone-approvals; `timesheet` only ever speaks this trait.
 #[async_trait::async_trait]
 pub trait TimesheetFiling: Send + Sync {
-    /// File a new approval request for a submitted period; returns the created
-    /// `approvals.ApprovalRequest.id` to stamp onto `timesheet_approvals.approval_request_id`.
-    async fn file(&self, req: &TimesheetFilingRequest) -> Result<Uuid, TimesheetSeamError>;
+    /// File an approval request for a submitted period. The receipt names the request to
+    /// stamp onto `timesheet_approvals.approval_request_id` and the engine's verdict on it.
+    async fn file(
+        &self,
+        req: &TimesheetFilingRequest,
+    ) -> Result<TimesheetFilingReceipt, TimesheetSeamError>;
 
     /// Read back the verdict for a previously filed approval.
     async fn status(&self, approval_request_id: Uuid) -> Result<TimesheetVerdict, TimesheetSeamError>;
@@ -92,11 +127,38 @@ pub struct UnwiredTimesheetApprovals;
 
 #[async_trait::async_trait]
 impl TimesheetFiling for UnwiredTimesheetApprovals {
-    async fn file(&self, _req: &TimesheetFilingRequest) -> Result<Uuid, TimesheetSeamError> {
+    async fn file(
+        &self,
+        _req: &TimesheetFilingRequest,
+    ) -> Result<TimesheetFilingReceipt, TimesheetSeamError> {
         Err(TimesheetSeamError::Unwired)
     }
 
     async fn status(&self, approval_request_id: Uuid) -> Result<TimesheetVerdict, TimesheetSeamError> {
         Err(TimesheetSeamError::UnknownApprovalRequest(approval_request_id))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn receipt(verdict: TimesheetVerdict, already_filed: bool) -> TimesheetFilingReceipt {
+        TimesheetFilingReceipt { request_id: Uuid::nil(), verdict, already_filed }
+    }
+
+    #[test]
+    fn only_a_fresh_or_pending_request_may_carry_a_month() {
+        // A request awaiting a decision, freshly filed or handed back, carries the month.
+        assert!(!receipt(TimesheetVerdict::Pending, false).already_decided());
+        assert!(!receipt(TimesheetVerdict::Pending, true).already_decided());
+        // A tenant with no policy is approved at filing time: that is this submission's verdict.
+        assert!(!receipt(TimesheetVerdict::Approved, false).already_decided());
+        // An approval handed back belongs to an earlier submission.
+        assert!(receipt(TimesheetVerdict::Approved, true).already_decided());
+        // A refused request never carries a month, however it came back.
+        assert!(receipt(TimesheetVerdict::Rejected, true).already_decided());
+        assert!(receipt(TimesheetVerdict::Rejected, false).already_decided());
+        assert!(receipt(TimesheetVerdict::Cancelled, true).already_decided());
     }
 }

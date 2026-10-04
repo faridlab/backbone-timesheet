@@ -130,6 +130,10 @@ pub enum TimesheetError {
     /// TR2: linked into the engine, not granted by it.
     #[error("approval not granted for the linked approval request")]
     ApprovalNotGranted,
+    /// A submit's filing came back with a request the engine had already decided, so the
+    /// month would wait on an approver who never sees it. The month is left as it was.
+    #[error("the approvals engine returned an approval request that is already decided — the month was not sent for approval")]
+    ApprovalAlreadyDecided,
     /// The row carries an invoice link — its pricing/anchoring columns are frozen.
     #[error("the entry is linked to an invoice — clear the link via the reversal path first")]
     InvoicedRowLocked,
@@ -171,6 +175,7 @@ impl TimesheetError {
             Self::EntryOutsidePeriod => "entry_outside_period",
             Self::WindowNotOpen => "window_not_open",
             Self::ApprovalNotGranted => "approval_not_granted",
+            Self::ApprovalAlreadyDecided => "approval_already_decided",
             Self::InvoicedRowLocked => "invoiced_row_locked",
             Self::LeaveRowBilled => "leave_row_billed",
             Self::NoCompanyScope => "no_org_scope",
@@ -185,7 +190,8 @@ impl TimesheetError {
             Self::NotFound(_) => 404,
             Self::PeriodClosed
             | Self::PeriodLocked | Self::PeriodAlreadySubmitted | Self::NotPending
-            | Self::EntryOverlap | Self::ApprovalNotGranted | Self::InvoicedRowLocked
+            | Self::EntryOverlap | Self::ApprovalNotGranted | Self::ApprovalAlreadyDecided
+            | Self::InvoicedRowLocked
             | Self::LeaveRowBilled | Self::RowNotUnderReview | Self::RowTransition
             | Self::OvertimePreauthMissing | Self::OvertimeExceedsAuthorised => 409,
             Self::InvalidRange | Self::BadEntryType | Self::NegativeHours | Self::EmptyPeriod
@@ -918,6 +924,10 @@ impl TimesheetWriteService {
     /// engine when the seam is wired (file-first, timeoff's ordering: the filing carries the
     /// period id so the insert lands with `approval_request_id` already set; an unwired seam
     /// means this deployment doesn't track approvals — the period simply carries no link).
+    /// A filing that comes back with a request the engine already decided (refused, or an
+    /// earlier approval handed back) is refused with `ApprovalAlreadyDecided` and the
+    /// period is left untouched: parking the month on it would leave it pending before
+    /// an approver who never receives it.
     pub async fn submit_period(
         &self,
         employee_id: Uuid,
@@ -970,7 +980,12 @@ impl TimesheetWriteService {
             submitted_at: now,
         };
         let approval_request_id = match self.approvals().file(&filing).await {
-            Ok(id) => Some(id),
+            // Never park the month on a request the engine already decided: an approver
+            // would never see it, and the month could neither be approved nor sent again.
+            Ok(receipt) if receipt.already_decided() => {
+                return Err(TimesheetError::ApprovalAlreadyDecided)
+            }
+            Ok(receipt) => Some(receipt.request_id),
             Err(TimesheetSeamError::Unwired) => None,
             Err(e) => return Err(e.into()),
         };

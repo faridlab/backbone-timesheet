@@ -33,7 +33,8 @@ use backbone_auth::org::OrgContext;
 use backbone_timesheet::org_scope::{OrgScope, with_org_request_scope};
 use backbone_timesheet::{
     create_guarded_timesheet_routes, RateLookup, RateSet, RateSourceError,
-    TimesheetFiling, TimesheetFilingRequest, TimesheetModule, TimesheetRateSource,
+    TimesheetFiling, TimesheetFilingReceipt, TimesheetFilingRequest, TimesheetModule,
+    TimesheetRateSource,
     TimesheetSeamError, TimesheetVerdict, UnwiredRateSource,
 };
 
@@ -191,8 +192,12 @@ struct StubApprovals {
 
 #[async_trait::async_trait]
 impl TimesheetFiling for StubApprovals {
-    async fn file(&self, _req: &TimesheetFilingRequest) -> Result<Uuid, TimesheetSeamError> {
-        Ok(Uuid::new_v4())
+    async fn file(&self, _req: &TimesheetFilingRequest) -> Result<TimesheetFilingReceipt, TimesheetSeamError> {
+        Ok(TimesheetFilingReceipt {
+            request_id: Uuid::new_v4(),
+            verdict: TimesheetVerdict::Pending,
+            already_filed: false,
+        })
     }
     async fn status(&self, _id: Uuid) -> Result<TimesheetVerdict, TimesheetSeamError> {
         Ok(*self.verdict.lock().unwrap())
@@ -544,6 +549,135 @@ async fn guarded_tr2_linked_period_fails_closed_until_engine_grants() {
         "SELECT billable_time FROM timesheet.timesheet_approvals WHERE employee_id = '{employee}' AND year = {y} AND month = {mo}"
     )).await;
     assert_eq!(hours, rust_decimal::Decimal::from(8), "billable_time stamped as the summed hours");
+}
+
+// ─── TS-7b: a month sent back after a rejection reaches an approver again ──────
+
+/// A port modelled on the approvals engine's per-resource rule: filing a resource whose
+/// request still holds it hands that request back (`already_filed`), otherwise a fresh
+/// pending request is filed. A pending or approved request always holds its resource;
+/// `refused_holds` models an engine on which a rejected request keeps holding it too, so
+/// a re-file hands the rejected request back.
+struct EngineModel {
+    refused_holds: bool,
+    /// (resource id, request id, verdict) per filed request.
+    requests: std::sync::Mutex<Vec<(Uuid, Uuid, TimesheetVerdict)>>,
+}
+
+impl EngineModel {
+    fn new(refused_holds: bool) -> Self {
+        Self { refused_holds, requests: std::sync::Mutex::new(Vec::new()) }
+    }
+
+    fn file_resource(&self, resource: Uuid) -> (Uuid, TimesheetVerdict, bool) {
+        let mut rows = self.requests.lock().unwrap();
+        let holding = rows.iter().find(|(r, _, v)| {
+            *r == resource
+                && (self.refused_holds
+                    || matches!(v, TimesheetVerdict::Pending | TimesheetVerdict::Approved))
+        });
+        if let Some((_, id, verdict)) = holding {
+            return (*id, *verdict, true);
+        }
+        let id = Uuid::new_v4();
+        rows.push((resource, id, TimesheetVerdict::Pending));
+        (id, TimesheetVerdict::Pending, false)
+    }
+
+    /// An approver refuses the request (the engine's decide).
+    fn reject(&self, request: Uuid) {
+        let mut rows = self.requests.lock().unwrap();
+        let row = rows.iter_mut().find(|(_, id, _)| *id == request).expect("filed request");
+        row.2 = TimesheetVerdict::Rejected;
+    }
+
+    fn count(&self) -> usize {
+        self.requests.lock().unwrap().len()
+    }
+}
+
+#[async_trait::async_trait]
+impl TimesheetFiling for EngineModel {
+    async fn file(&self, req: &TimesheetFilingRequest) -> Result<TimesheetFilingReceipt, TimesheetSeamError> {
+        let (request_id, verdict, already_filed) = self.file_resource(req.timesheet_approval_id);
+        Ok(TimesheetFilingReceipt { request_id, verdict, already_filed })
+    }
+    async fn status(&self, id: Uuid) -> Result<TimesheetVerdict, TimesheetSeamError> {
+        let rows = self.requests.lock().unwrap();
+        rows.iter()
+            .find(|(_, r, _)| *r == id)
+            .map(|(_, _, v)| *v)
+            .ok_or(TimesheetSeamError::UnknownApprovalRequest(id))
+    }
+}
+
+/// Submit, have the engine refuse it, settle the refusal onto the month (what the host's
+/// verdict dispatcher does), then send the month again. Returns the first request id and
+/// the re-send's HTTP status.
+async fn send_reject_send(
+    pool: &PgPool,
+    engine: std::sync::Arc<EngineModel>,
+) -> (Uuid, Uuid, i32, i32, Uuid, StatusCode, serde_json::Value) {
+    let m = module(pool).await;
+    m.timesheet_write_service.set_approvals(engine.clone());
+    let company = Uuid::new_v4();
+    let employee = Uuid::new_v4();
+    let (y, mo, date) = prev_month();
+    let app = create_guarded_timesheet_routes(&m);
+
+    create_entry(app.clone(), pool, company, employee, date).await;
+    let submit = format!(r#"{{"employeeId":"{employee}","year":{y},"month":{mo}}}"#);
+    let s = req(app.clone(), pool, company, "POST", "/timesheets/periods/submit", submit.clone()).await;
+    assert_eq!(s, StatusCode::CREATED, "first send");
+    let first: Uuid = one(pool, format!(
+        "SELECT approval_request_id FROM timesheet.timesheet_approvals WHERE employee_id = '{employee}' AND year = {y} AND month = {mo}"
+    )).await;
+
+    engine.reject(first);
+    let reject = format!(r#"{{"employeeId":"{employee}","year":{y},"month":{mo},"remark":"missing overtime"}}"#);
+    let s = req(app.clone(), pool, company, "POST", "/timesheets/periods/reject", reject).await;
+    assert_eq!(s, StatusCode::NO_CONTENT, "the refusal settles onto the month");
+
+    let (s, body) = req_full(app, pool, company, "POST", "/timesheets/periods/submit", submit).await;
+    (company, employee, y, mo, first, s, body)
+}
+
+#[tokio::test]
+async fn resend_after_rejection_links_a_fresh_request() {
+    let pool = pool().await;
+    let engine = std::sync::Arc::new(EngineModel::new(false));
+    let (_, employee, y, mo, first, s, _) = send_reject_send(&pool, engine.clone()).await;
+    assert_eq!(s, StatusCode::CREATED, "the month is sent again");
+
+    let (status, linked): (String, Uuid) = sqlx::query_as(&format!(
+        "SELECT status::text, approval_request_id FROM timesheet.timesheet_approvals WHERE employee_id = '{employee}' AND year = {y} AND month = {mo}"
+    ))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(status, "pending", "the month awaits a decision again");
+    assert_ne!(linked, first, "the month links the NEW request, not the rejected one");
+    assert_eq!(engine.count(), 2, "the re-send filed a second request");
+    assert_eq!(engine.status(linked).await.unwrap(), TimesheetVerdict::Pending);
+}
+
+#[tokio::test]
+async fn resend_refuses_a_request_the_engine_already_decided() {
+    let pool = pool().await;
+    // An engine that hands the rejected request back on a re-file.
+    let engine = std::sync::Arc::new(EngineModel::new(true));
+    let (_, employee, y, mo, first, s, body) = send_reject_send(&pool, engine.clone()).await;
+    assert_eq!(s, StatusCode::CONFLICT, "a decided request is refused, never parked as pending");
+    assert_eq!(body.get("error").and_then(|c| c.as_str()), Some("approval_already_decided"));
+
+    let (status, linked): (String, Uuid) = sqlx::query_as(&format!(
+        "SELECT status::text, approval_request_id FROM timesheet.timesheet_approvals WHERE employee_id = '{employee}' AND year = {y} AND month = {mo}"
+    ))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(status, "rejected", "the month stays sent back, open for edits");
+    assert_eq!(linked, first, "the month keeps its last link");
 }
 
 // ─── TS-8: the fail-closed twin — an identified request with NO bound scope ────

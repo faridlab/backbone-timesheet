@@ -32,8 +32,8 @@ pub use timesheet_service::TimesheetService;
 pub use timesheet_approval_service::TimesheetApprovalService;
 // <<< CUSTOM
 pub use approvals_port::{
-    TimesheetFiling, TimesheetFilingRequest, TimesheetSeamError, TimesheetVerdict,
-    UnwiredTimesheetApprovals,
+    TimesheetFiling, TimesheetFilingReceipt, TimesheetFilingRequest, TimesheetSeamError,
+    TimesheetVerdict, UnwiredTimesheetApprovals,
 };
 pub use rate_source_port::{
     RateLookup, RateSet, RateSourceError, TimesheetRateSource, UnwiredRateSource,
