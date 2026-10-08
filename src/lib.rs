@@ -147,6 +147,8 @@ impl TimesheetModule {
 /// Builder for TimesheetModule
 pub struct TimesheetModuleBuilder {
     db_pool: Option<PgPool>,
+    // <<< CUSTOM BUILDER FIELDS
+    // END CUSTOM
 }
 
 impl TimesheetModuleBuilder {
@@ -154,6 +156,8 @@ impl TimesheetModuleBuilder {
     pub fn new() -> Self {
         Self {
             db_pool: None,
+            // <<< CUSTOM BUILDER DEFAULTS
+            // END CUSTOM
         }
     }
 

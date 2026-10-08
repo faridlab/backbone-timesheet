@@ -230,8 +230,6 @@ impl backbone_orm::EntityRepoMeta for RateCard {
         m.insert("id".to_string(), "uuid".to_string());
         m.insert("employee_id".to_string(), "uuid".to_string());
         m.insert("activity_type_id".to_string(), "uuid".to_string());
-        // Temporal cast hints: without them a filter like valid_from[gte]=…
-        // binds text and Postgres has no implicit `date >= text` operator.
         m.insert("valid_from".to_string(), "date".to_string());
         m
     }
