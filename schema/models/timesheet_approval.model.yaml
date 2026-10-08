@@ -22,7 +22,7 @@ models:
 
       employee_id:
         type: uuid
-        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        attributes: ["@required", "@exclude_from_foreign_key_check", '@include("employee", "employee.employees")']
         description: "Whose timesheet is being approved # logical FK employee.Employee.id"
 
       approver_id:

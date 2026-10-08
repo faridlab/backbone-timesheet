@@ -28,7 +28,7 @@ models:
 
       employee_id:
         type: uuid
-        attributes: ["@required", "@exclude_from_foreign_key_check"]
+        attributes: ["@required", "@exclude_from_foreign_key_check", '@include("employee", "employee.employees")']
         description: "Who logged the time # logical FK employee.Employee.id"
 
       project_id:
