@@ -1,6 +1,6 @@
 [package]
 name = "backbone-timesheet"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 description = "Timesheets as analytic time lines: rate cards and rate snapshots, submission and approval, with a guard on invoiced rows"
 license = "MIT OR Apache-2.0"
