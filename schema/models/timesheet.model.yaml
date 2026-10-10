@@ -137,6 +137,11 @@ models:
     indexes:
       - type: index
         fields: [employee_id, date]
+      # Newest first, the order every timesheet list opens in.
+      - type: index
+        fields: [date, id]
+        where: "(metadata->>'deleted_at') IS NULL"
+        description: "Live rows by date, for the newest-first list"
       - type: index
         fields: [project_id]
       # The billing/roll-up scan: one pass over a project's live analytic lines.
