@@ -10,5 +10,3 @@ pub use rate_card_domain_policy::RateCardDomainPolicy;
 pub use timesheet_domain_policy::TimesheetDomainPolicy;
 pub use timesheet_approval_domain_policy::TimesheetApprovalDomainPolicy;
 
-// <<< CUSTOM
-// END CUSTOM

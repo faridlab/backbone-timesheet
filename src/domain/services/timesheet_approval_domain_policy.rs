@@ -18,5 +18,3 @@ use crate::domain::entity::TimesheetApproval;
 /// service. `PermitAllPolicy` is the safe default until then.
 pub type TimesheetApprovalDomainPolicy = PermitAllPolicy<TimesheetApproval>;
 
-// <<< CUSTOM
-// END CUSTOM

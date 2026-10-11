@@ -188,3 +188,4 @@ pub fn create_protected_rate_card_routes<A: AuthMiddleware + Send + Sync + 'stat
             }
         }))
 }
+

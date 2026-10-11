@@ -11,8 +11,6 @@ use crate::domain::entity::TimesheetApproval;
 /// enum containing a `Crud(CrudEvent<TimesheetApproval>)` variant.
 pub type TimesheetApprovalEvent = CrudEvent<TimesheetApproval>;
 
-// <<< CUSTOM
-// END CUSTOM
 
 use backbone_messaging::{CrudEventPublisher, NoOpCrudEventPublisher};
 use std::sync::Arc;

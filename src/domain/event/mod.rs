@@ -16,5 +16,3 @@ pub use timesheet_event_handlers::TimesheetEventHandler;
 pub use timesheet_approval_events::{TimesheetApprovalEvent, TimesheetApprovalEventPublisher, NoopTimesheetApprovalEventPublisher};
 pub use timesheet_approval_event_handlers::TimesheetApprovalEventHandler;
 
-// <<< CUSTOM
-// END CUSTOM

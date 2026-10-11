@@ -32,5 +32,3 @@ pub type TimesheetApprovalService = GenericCrudService<
     TimesheetApprovalRepository,
 >;
 
-// <<< CUSTOM
-// END CUSTOM

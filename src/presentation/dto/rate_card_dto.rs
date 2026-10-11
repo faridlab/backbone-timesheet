@@ -272,7 +272,7 @@ impl backbone_core::ApplyUpdateDto<UpdateRateCardDto> for RateCard {
 // Custom DTOs
 // =============================================================================
 
-// <<< CUSTOM DTOs
 // Add custom DTOs specific to RateCard here.
 // This section will be preserved during regeneration.
 // >>> END CUSTOM DTOs
+

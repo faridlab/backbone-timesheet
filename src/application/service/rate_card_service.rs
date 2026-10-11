@@ -32,5 +32,3 @@ pub type RateCardService = GenericCrudService<
     RateCardRepository,
 >;
 
-// <<< CUSTOM
-// END CUSTOM

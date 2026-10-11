@@ -120,6 +120,4 @@ mod tests {
 // CUSTOM TESTS
 // ============================================================================
 
-// <<< CUSTOM TESTS START >>>
 // Add TimesheetApproval specific tests here
-// <<< CUSTOM TESTS END >>>

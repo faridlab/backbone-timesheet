@@ -13,5 +13,3 @@ pub use rate_card_validator::{RateCardValidator, rate_card_validator};
 pub use timesheet_validator::{TimesheetValidator, timesheet_validator};
 pub use timesheet_approval_validator::{TimesheetApprovalValidator, timesheet_approval_validator};
 
-// <<< CUSTOM
-// END CUSTOM

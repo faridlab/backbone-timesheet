@@ -304,8 +304,6 @@ impl Timesheet {
         }
     }
 
-    // <<< CUSTOM METHODS START >>>
-    // <<< CUSTOM METHODS END >>>
 }
 
 impl super::Entity for Timesheet {

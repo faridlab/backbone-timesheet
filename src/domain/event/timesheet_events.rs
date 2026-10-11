@@ -11,8 +11,6 @@ use crate::domain::entity::Timesheet;
 /// enum containing a `Crud(CrudEvent<Timesheet>)` variant.
 pub type TimesheetEvent = CrudEvent<Timesheet>;
 
-// <<< CUSTOM
-// END CUSTOM
 
 use backbone_messaging::{CrudEventPublisher, NoOpCrudEventPublisher};
 use std::sync::Arc;

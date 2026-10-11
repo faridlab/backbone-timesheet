@@ -17,9 +17,5 @@ pub fn timesheet_validator() -> TimesheetValidator {
     EntityValidator::new()
         .rule(OptionalNotBlank::new("remark", |e: &Timesheet| e.remark.as_deref()))
         .rule(RequiredString::new("currency", |e: &Timesheet| &e.currency))
-    // <<< CUSTOM RULES
-    // END CUSTOM RULES
 }
 
-// <<< CUSTOM
-// END CUSTOM

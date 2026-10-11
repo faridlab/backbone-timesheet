@@ -16,9 +16,5 @@ pub type TimesheetApprovalValidator = EntityValidator<TimesheetApproval>;
 pub fn timesheet_approval_validator() -> TimesheetApprovalValidator {
     EntityValidator::new()
         .rule(OptionalNotBlank::new("remark", |e: &TimesheetApproval| e.remark.as_deref()))
-    // <<< CUSTOM RULES
-    // END CUSTOM RULES
 }
 
-// <<< CUSTOM
-// END CUSTOM

@@ -11,14 +11,10 @@ pub mod rate_card_service;
 pub mod timesheet_service;
 pub mod timesheet_approval_service;
 
-// <<< CUSTOM
-// END CUSTOM
 
 pub use rate_card_service::RateCardService;
 pub use timesheet_service::TimesheetService;
 pub use timesheet_approval_service::TimesheetApprovalService;
-// <<< CUSTOM
-// END CUSTOM
 
 // This directory's extension (hand-written; ADR-0031).
 include!("mod.ext.rs");

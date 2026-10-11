@@ -240,8 +240,6 @@ impl TimesheetApproval {
         }
     }
 
-    // <<< CUSTOM METHODS START >>>
-    // <<< CUSTOM METHODS END >>>
 }
 
 impl super::Entity for TimesheetApproval {

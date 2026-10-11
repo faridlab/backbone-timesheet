@@ -18,5 +18,3 @@ use crate::domain::entity::RateCard;
 /// service. `PermitAllPolicy` is the safe default until then.
 pub type RateCardDomainPolicy = PermitAllPolicy<RateCard>;
 
-// <<< CUSTOM
-// END CUSTOM

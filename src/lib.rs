@@ -24,8 +24,6 @@ pub mod application;
 pub mod presentation;
 pub mod seeders;
 pub mod exports;
-// <<< CUSTOM MODULES
-// END CUSTOM
 
 // The module's extension (hand-written; ADR-0031).
 #[path = "lib.ext.rs"]
@@ -76,8 +74,6 @@ pub struct TimesheetModule {
     pub(crate) timesheet_approval_service: Arc<TimesheetApprovalService>,
     /// The module's extension state (`lib.ext.rs`); its fields read through `Deref`.
     pub(crate) ext: ModuleExt,
-    // <<< CUSTOM FIELDS
-    // END CUSTOM
 }
 
 impl std::ops::Deref for TimesheetModule {
@@ -157,8 +153,6 @@ impl TimesheetModule {
             .merge(create_timesheet_approval_read_routes(self.timesheet_approval_service.clone()))
     }
 
-    // <<< CUSTOM METHODS
-    // END CUSTOM
 }
 
 /// Builder for TimesheetModule
@@ -166,8 +160,6 @@ pub struct TimesheetModuleBuilder {
     db_pool: Option<PgPool>,
     /// The builder's extension state (`lib.ext.rs`); its fields read through `Deref`.
     ext: ModuleBuilderExt,
-    // <<< CUSTOM BUILDER FIELDS
-    // END CUSTOM
 }
 
 impl std::ops::Deref for TimesheetModuleBuilder {
@@ -189,8 +181,6 @@ impl TimesheetModuleBuilder {
         Self {
             db_pool: None,
             ext: Default::default(),
-            // <<< CUSTOM BUILDER DEFAULTS
-            // END CUSTOM
         }
     }
 
@@ -200,8 +190,6 @@ impl TimesheetModuleBuilder {
         self
     }
 
-    // <<< CUSTOM - custom builder methods
-    // END CUSTOM
 
     /// Build the module with configured dependencies
     pub fn build(self) -> anyhow::Result<TimesheetModule> {
@@ -220,8 +208,6 @@ impl TimesheetModuleBuilder {
         let timesheet_approval_repository = Arc::new(TimesheetApprovalRepository::new(db_pool.clone()));
         let timesheet_approval_service = Arc::new(TimesheetApprovalService::with_repository(timesheet_approval_repository.clone()));
 
-        // <<< CUSTOM
-        // END CUSTOM
 
         // The extension builds its own state from what the generated build made.
         let ext = self.ext.build(&ModuleParts {
@@ -239,8 +225,6 @@ impl TimesheetModuleBuilder {
             timesheet_service,
             timesheet_approval_service,
             ext,
-            // <<< CUSTOM
-            // END CUSTOM
         })
     }
 }
