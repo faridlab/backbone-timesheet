@@ -25,8 +25,17 @@ pub mod presentation;
 pub mod seeders;
 pub mod exports;
 // <<< CUSTOM MODULES
-pub mod request_pool;
 // END CUSTOM
+
+// The module's extension (hand-written; ADR-0031).
+#[path = "lib.ext.rs"]
+mod lib_ext;
+pub use lib_ext::*;
+/// This crate's module and builder under fixed names, for the extension's `impl` blocks.
+#[allow(dead_code)]
+pub(crate) type ThisModule = TimesheetModule;
+#[allow(dead_code)]
+pub(crate) type ThisModuleBuilder = TimesheetModuleBuilder;
 
 // Re-exports for convenience - Domain entities
 pub use domain::entity::*;
@@ -45,22 +54,6 @@ pub use application::validator::{ValidationError, ValidationResult};
 // Re-exports - Workflows
 pub use application::workflows::*;
 
-// <<< CUSTOM
-// The validated write path (analytic-line entries under the period lock, submit window, period
-// transitions, approvals seam — H-6; plain-stored amounts with reprice-on-qualifying-write,
-// invoiced-row write guard, leave regeneration) and its guarded HTTP composition, plus
-// `org_scope` re-exported for the probe suite (tests/ can only see the public surface,
-// mirroring backbone-party).
-pub use application::service::{
-    last_day_of_month, TimesheetEntryDto, TimesheetError, TimesheetWriteService,
-    TimesheetFiling, TimesheetFilingReceipt, TimesheetFilingRequest, TimesheetSeamError,
-    TimesheetVerdict, UnwiredTimesheetApprovals,
-    RateLookup, RateSet, RateSourceError, TimesheetRateSource, UnwiredRateSource,
-};
-pub use infrastructure::persistence::{LeaveDayEntry, LeaveRowSync};
-pub use presentation::http::create_guarded_timesheet_routes;
-pub use backbone_orm::org_scope;
-// END CUSTOM
 use std::sync::Arc;
 use axum::Router;
 use sqlx::PgPool;
@@ -81,11 +74,35 @@ pub struct TimesheetModule {
     pub(crate) rate_card_service: Arc<RateCardService>,
     pub(crate) timesheet_service: Arc<TimesheetService>,
     pub(crate) timesheet_approval_service: Arc<TimesheetApprovalService>,
+    /// The module's extension state (`lib.ext.rs`); its fields read through `Deref`.
+    pub(crate) ext: ModuleExt,
     // <<< CUSTOM FIELDS
-    /// Validated entry + period writes (period lock, submit window, overlap mapping, approvals
-    /// seam). The guarded routes compose off this; `set_approvals` wires the engine port.
-    pub timesheet_write_service: Arc<TimesheetWriteService>,
     // END CUSTOM
+}
+
+impl std::ops::Deref for TimesheetModule {
+    type Target = ModuleExt;
+    fn deref(&self) -> &Self::Target {
+        &self.ext
+    }
+}
+
+impl std::ops::DerefMut for TimesheetModule {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.ext
+    }
+}
+
+/// What the extension's `build` hook receives from the generated build (ADR-0031).
+#[allow(dead_code)]
+pub(crate) struct ModuleParts<'a> {
+    pub(crate) db_pool: &'a PgPool,
+    pub(crate) rate_card_service: &'a Arc<RateCardService>,
+    pub(crate) rate_card_repository: &'a Arc<RateCardRepository>,
+    pub(crate) timesheet_service: &'a Arc<TimesheetService>,
+    pub(crate) timesheet_repository: &'a Arc<TimesheetRepository>,
+    pub(crate) timesheet_approval_service: &'a Arc<TimesheetApprovalService>,
+    pub(crate) timesheet_approval_repository: &'a Arc<TimesheetApprovalRepository>,
 }
 
 impl TimesheetModule {
@@ -147,8 +164,23 @@ impl TimesheetModule {
 /// Builder for TimesheetModule
 pub struct TimesheetModuleBuilder {
     db_pool: Option<PgPool>,
+    /// The builder's extension state (`lib.ext.rs`); its fields read through `Deref`.
+    ext: ModuleBuilderExt,
     // <<< CUSTOM BUILDER FIELDS
     // END CUSTOM
+}
+
+impl std::ops::Deref for TimesheetModuleBuilder {
+    type Target = ModuleBuilderExt;
+    fn deref(&self) -> &Self::Target {
+        &self.ext
+    }
+}
+
+impl std::ops::DerefMut for TimesheetModuleBuilder {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.ext
+    }
 }
 
 impl TimesheetModuleBuilder {
@@ -156,6 +188,7 @@ impl TimesheetModuleBuilder {
     pub fn new() -> Self {
         Self {
             db_pool: None,
+            ext: Default::default(),
             // <<< CUSTOM BUILDER DEFAULTS
             // END CUSTOM
         }
@@ -188,15 +221,25 @@ impl TimesheetModuleBuilder {
         let timesheet_approval_service = Arc::new(TimesheetApprovalService::with_repository(timesheet_approval_repository.clone()));
 
         // <<< CUSTOM
-        let timesheet_write_service = Arc::new(TimesheetWriteService::new(db_pool.clone()));
         // END CUSTOM
+
+        // The extension builds its own state from what the generated build made.
+        let ext = self.ext.build(&ModuleParts {
+            db_pool: &db_pool,
+            rate_card_service: &rate_card_service,
+            rate_card_repository: &rate_card_repository,
+            timesheet_service: &timesheet_service,
+            timesheet_repository: &timesheet_repository,
+            timesheet_approval_service: &timesheet_approval_service,
+            timesheet_approval_repository: &timesheet_approval_repository,
+        })?;
 
         Ok(TimesheetModule {
             rate_card_service,
             timesheet_service,
             timesheet_approval_service,
+            ext,
             // <<< CUSTOM
-            timesheet_write_service,
             // END CUSTOM
         })
     }
@@ -207,3 +250,6 @@ impl Default for TimesheetModuleBuilder {
         Self::new()
     }
 }
+
+// This directory's extension (hand-written; ADR-0031).
+include!("mod.ext.rs");
