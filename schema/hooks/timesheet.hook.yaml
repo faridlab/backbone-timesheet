@@ -15,26 +15,33 @@ rules:
   # -- entry overlap (DB-only: the EXCLUDE constraint IS the arbiter) -----------
   - id: TS-EX1
     name: ranged_entries_no_overlap
+    entity: Timesheet
     when: insert, update
     assert: "two live entries of one employee may not overlap when both carry explicit start/end instants; duration-only rows are exempt"
     error_code: entry_overlap
+    enforced_by: "migrations/20260911062500_strip_tenancy.up.sql::timesheets_no_overlap, src/application/service/timesheet_write_service.rs::map_entry_write_error"
     enforcement: db
 
   # -- leave-regeneration no-duplicates (db: partial unique) --------------------
   - id: TS-LV1
     name: one_live_leave_row_per_request_day
+    entity: Timesheet
     when: insert
     assert: "at most one live row per (source_timeoff_request_id, date); leave regeneration is delete-and-regenerate inside one tx, and a raw duplicate insert raises 23505 on the partial unique"
     error_code: duplicate_leave_row
+    enforced_by: "migrations/20260911062500_strip_tenancy.up.sql::uq_timesheets_leave_origin"
     enforcement: db
+    justification: "The partial unique holds the invariant, but a duplicate surfaces as a database error rather than duplicate_leave_row, and two overlapping regenerations for one request (an approve and a cancel settled concurrently) can leave live rows for a cancelled leave."
 
   # -- invoiced-row write protection (both: trigger + typed error) --------------
   - id: TS-INV1
     name: invoiced_row_write_guard
+    entity: Timesheet
     when: update, delete
     assert: "a row whose invoice_id is set may not change any pricing/anchoring column; clearing invoice_id (the unbill/reversal path) stays legal, and soft-deleting an invoiced row refuses"
     error_code: invoiced_row_locked
     enforcement: both
+    justification: "PARTLY: the timesheets_invoiced_row_guard trigger and the service checks refuse a repricing update, but soft delete is left to an unlocked service read that races the billing stamp, and a single raw update that clears the invoice link while repricing, or moves the link to another invoice, passes the trigger."
 
 events:
   # Emission is the write service's responsibility (user-owned
