@@ -56,7 +56,7 @@ impl backbone_core::write_guard::WriteGuard<Timesheet> for TimesheetRowRules {
         };
         let row = &row;
         let old = ctx.before.and_then(|b| serde_json::to_value(b).ok());
-        let mut shadow = Vec::new();
+        let shadow = Vec::new();
         let mut refuse = Vec::new();
         // `employee_id_required` (@required on Timesheet.employee_id)
         if (create || (update && r::changed(old.as_ref(), row, &["employee_id"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "employee_id")), r::not(r::is_empty(r::trim(r::field(row, "employee_id")))))) {
@@ -64,31 +64,31 @@ impl backbone_core::write_guard::WriteGuard<Timesheet> for TimesheetRowRules {
         }
         // `remark_max_length` (@length(max=255) on Timesheet.remark)
         if (create || (update && r::changed(old.as_ref(), row, &["remark"]))) && !r::holds(&r::le(r::length(r::field(row, "remark")), r::Val::Num(255.0_f64))) {
-            shadow.push(Violation::new("remark", "max_length", "remark must be at most 255 characters").with_param("max", 255_i64));
+            refuse.push(Violation::new("remark", "max_length", "remark must be at most 255 characters").with_param("max", 255_i64));
         }
         // `unit_amount_non_negative` (@non_negative on Timesheet.unit_amount)
         if (create || (update && r::changed(old.as_ref(), row, &["unit_amount"]))) && !r::holds(&r::ge(r::field(row, "unit_amount"), r::Val::Num(0.0_f64))) {
-            shadow.push(Violation::new("unit_amount", "non_negative", "unit_amount must not be negative"));
+            refuse.push(Violation::new("unit_amount", "non_negative", "unit_amount must not be negative"));
         }
         // `currency_length` (@length(3) on Timesheet.currency)
         if (create || (update && r::changed(old.as_ref(), row, &["currency"]))) && !r::holds(&r::eq(r::length(r::field(row, "currency")), r::Val::Num(3.0_f64))) {
-            shadow.push(Violation::new("currency", "length", "currency must be exactly 3 characters").with_param("length", 3_i64));
+            refuse.push(Violation::new("currency", "length", "currency must be exactly 3 characters").with_param("length", 3_i64));
         }
         // `billing_rate_non_negative` (@non_negative on Timesheet.billing_rate)
         if (create || (update && r::changed(old.as_ref(), row, &["billing_rate"]))) && !r::holds(&r::ge(r::field(row, "billing_rate"), r::Val::Num(0.0_f64))) {
-            shadow.push(Violation::new("billing_rate", "non_negative", "billing_rate must not be negative"));
+            refuse.push(Violation::new("billing_rate", "non_negative", "billing_rate must not be negative"));
         }
         // `costing_rate_non_negative` (@non_negative on Timesheet.costing_rate)
         if (create || (update && r::changed(old.as_ref(), row, &["costing_rate"]))) && !r::holds(&r::ge(r::field(row, "costing_rate"), r::Val::Num(0.0_f64))) {
-            shadow.push(Violation::new("costing_rate", "non_negative", "costing_rate must not be negative"));
+            refuse.push(Violation::new("costing_rate", "non_negative", "costing_rate must not be negative"));
         }
         // `billable_amount_non_negative` (@non_negative on Timesheet.billable_amount)
         if (create || (update && r::changed(old.as_ref(), row, &["billable_amount"]))) && !r::holds(&r::ge(r::field(row, "billable_amount"), r::Val::Num(0.0_f64))) {
-            shadow.push(Violation::new("billable_amount", "non_negative", "billable_amount must not be negative"));
+            refuse.push(Violation::new("billable_amount", "non_negative", "billable_amount must not be negative"));
         }
         // `costing_amount_non_negative` (@non_negative on Timesheet.costing_amount)
         if (create || (update && r::changed(old.as_ref(), row, &["costing_amount"]))) && !r::holds(&r::ge(r::field(row, "costing_amount"), r::Val::Num(0.0_f64))) {
-            shadow.push(Violation::new("costing_amount", "non_negative", "costing_amount must not be negative"));
+            refuse.push(Violation::new("costing_amount", "non_negative", "costing_amount must not be negative"));
         }
         GuardOutcome { refuse, shadow }
     }
