@@ -46,9 +46,6 @@ pub use application::service::RateCardService;
 pub use application::service::TimesheetService;
 pub use application::service::TimesheetApprovalService;
 
-// Re-exports - Validation
-pub use application::validator::{ValidationError, ValidationResult};
-
 // Re-exports - Workflows
 pub use application::workflows::*;
 
@@ -198,15 +195,15 @@ impl TimesheetModuleBuilder {
 
         // RateCard service
         let rate_card_repository = Arc::new(RateCardRepository::new(db_pool.clone()));
-        let rate_card_service = Arc::new(RateCardService::with_repository(rate_card_repository.clone()));
+        let rate_card_service = Arc::new(RateCardService::with_repository(rate_card_repository.clone()).with_guard(Arc::new(crate::application::service::RateCardRowRules)));
 
         // Timesheet service
         let timesheet_repository = Arc::new(TimesheetRepository::new(db_pool.clone()));
-        let timesheet_service = Arc::new(TimesheetService::with_repository(timesheet_repository.clone()));
+        let timesheet_service = Arc::new(TimesheetService::with_repository(timesheet_repository.clone()).with_guard(Arc::new(crate::application::service::TimesheetRowRules)));
 
         // TimesheetApproval service
         let timesheet_approval_repository = Arc::new(TimesheetApprovalRepository::new(db_pool.clone()));
-        let timesheet_approval_service = Arc::new(TimesheetApprovalService::with_repository(timesheet_approval_repository.clone()));
+        let timesheet_approval_service = Arc::new(TimesheetApprovalService::with_repository(timesheet_approval_repository.clone()).with_guard(Arc::new(crate::application::service::TimesheetApprovalRowRules)));
 
 
         // The extension builds its own state from what the generated build made.

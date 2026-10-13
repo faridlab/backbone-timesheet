@@ -15,6 +15,9 @@ pub mod timesheet_approval_service;
 pub use rate_card_service::RateCardService;
 pub use timesheet_service::TimesheetService;
 pub use timesheet_approval_service::TimesheetApprovalService;
+pub use rate_card_service::RateCardRowRules;
+pub use timesheet_service::TimesheetRowRules;
+pub use timesheet_approval_service::TimesheetApprovalRowRules;
 
 // This directory's extension (hand-written; ADR-0031).
 include!("mod.ext.rs");
