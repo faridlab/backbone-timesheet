@@ -19,5 +19,29 @@ pub use rate_card_service::RateCardRowRules;
 pub use timesheet_service::TimesheetRowRules;
 pub use timesheet_approval_service::TimesheetApprovalRowRules;
 
+/// A `RateCardService` over `repository` with its write guard attached: the way to build it, so its writes are
+/// served only with the rules the schema declares.
+pub fn build_rate_card_service(
+    repository: std::sync::Arc<crate::infrastructure::persistence::RateCardRepository>,
+) -> RateCardService {
+    RateCardService::with_repository(repository).with_guard(std::sync::Arc::new(RateCardRowRules))
+}
+
+/// A `TimesheetService` over `repository` with its write guard attached: the way to build it, so its writes are
+/// served only with the rules the schema declares.
+pub fn build_timesheet_service(
+    repository: std::sync::Arc<crate::infrastructure::persistence::TimesheetRepository>,
+) -> TimesheetService {
+    TimesheetService::with_repository(repository).with_guard(std::sync::Arc::new(TimesheetRowRules))
+}
+
+/// A `TimesheetApprovalService` over `repository` with its write guard attached: the way to build it, so its writes are
+/// served only with the rules the schema declares.
+pub fn build_timesheet_approval_service(
+    repository: std::sync::Arc<crate::infrastructure::persistence::TimesheetApprovalRepository>,
+) -> TimesheetApprovalService {
+    TimesheetApprovalService::with_repository(repository).with_guard(std::sync::Arc::new(TimesheetApprovalRowRules))
+}
+
 // This directory's extension (hand-written; ADR-0031).
 include!("mod.ext.rs");

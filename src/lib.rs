@@ -192,15 +192,15 @@ impl TimesheetModuleBuilder {
 
         // RateCard service
         let rate_card_repository = Arc::new(RateCardRepository::new(db_pool.clone()));
-        let rate_card_service = Arc::new(RateCardService::with_repository(rate_card_repository.clone()).with_guard(Arc::new(crate::application::service::RateCardRowRules)));
+        let rate_card_service = Arc::new(crate::application::service::build_rate_card_service(rate_card_repository.clone()));
 
         // Timesheet service
         let timesheet_repository = Arc::new(TimesheetRepository::new(db_pool.clone()));
-        let timesheet_service = Arc::new(TimesheetService::with_repository(timesheet_repository.clone()).with_guard(Arc::new(crate::application::service::TimesheetRowRules)));
+        let timesheet_service = Arc::new(crate::application::service::build_timesheet_service(timesheet_repository.clone()));
 
         // TimesheetApproval service
         let timesheet_approval_repository = Arc::new(TimesheetApprovalRepository::new(db_pool.clone()));
-        let timesheet_approval_service = Arc::new(TimesheetApprovalService::with_repository(timesheet_approval_repository.clone()).with_guard(Arc::new(crate::application::service::TimesheetApprovalRowRules)));
+        let timesheet_approval_service = Arc::new(crate::application::service::build_timesheet_approval_service(timesheet_approval_repository.clone()));
 
 
         // The extension builds its own state from what the generated build made.

@@ -43,9 +43,6 @@ rules:
     enforcement: both
     justification: "PARTLY: the timesheets_invoiced_row_guard trigger and the service checks refuse a repricing update, but soft delete is left to an unlocked service read that races the billing stamp, and a single raw update that clears the invoice link while repricing, or moves the link to another invoice, passes the trigger."
 
-events:
+events: {}
   # Emission is the write service's responsibility (user-owned
   # timesheet_write_service.rs); listed here so the surface is on record.
-  LeaveRowsRegenerated:
-    when: "regenerate_leave_rows commits (delete-and-regenerate off a settled timeoff request)"
-    payload: [employee_id, timeoff_request_id, rows_inserted]
