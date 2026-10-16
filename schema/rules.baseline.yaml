@@ -1,8 +1,8 @@
 # The rule ratchet (schema doctor): these counts may only go down. Regenerate with
 # `metaphor schema rules . --update-baseline` after enforcing a rule.
-unenforced: 1
+unenforced: 0
 warnings: 0
 machines_without_verbs: 0
 untested_rule_ids: 3
-unenforced_rules:
-- 'timesheet.hook.yaml: invoiced_row_write_guard'
+unenforced_rules: []
+bypassable_rules: []

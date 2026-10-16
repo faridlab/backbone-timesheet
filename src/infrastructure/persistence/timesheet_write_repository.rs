@@ -223,7 +223,9 @@ impl TimesheetWriteRepository {
     // ─── entries ────────────────────────────────────────────────────────────────
 
     /// The row's stored state for update decisions (period coordinates, invoice link, and the
-    /// plain-stored snapshot). Reads without repricing — the plain-amount rule.
+    /// plain-stored snapshot). Reads without repricing — the plain-amount rule. Locks the row for
+    /// the caller's write: a billing stamp waits for the edit, so the invoice link read here is
+    /// the one the write lands on.
     pub async fn entry_snapshot(
         &self,
         conn: &mut PgConnection,
@@ -235,7 +237,8 @@ impl TimesheetWriteRepository {
                       row_status::text AS row_status
                  FROM timesheet.timesheets
                 WHERE id = $1
-                  AND (metadata->>'deleted_at') IS NULL"#,
+                  AND (metadata->>'deleted_at') IS NULL
+                  FOR UPDATE"#,
         )
         .bind(entry_id)
         .fetch_optional(conn)
@@ -424,6 +427,7 @@ impl TimesheetWriteRepository {
             r#"UPDATE timesheet.timesheets
                   SET metadata = metadata || jsonb_build_object('deleted_at', to_jsonb($2::timestamptz))
                 WHERE id = $1
+                  AND invoice_id IS NULL
                   AND (metadata->>'deleted_at') IS NULL"#,
         )
         .bind(entry_id)

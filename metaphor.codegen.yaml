@@ -37,6 +37,7 @@ user_owned:
 
   # Behavior tests (the golden cases / oracle) + BDD features.
   - "tests/features/**"
+  - "tests/invoiced_row_guard.rs"
   # - "tests/*_golden_cases.rs"
   # Route-level integrity probes (W1 P2): real company_auth + HS256 token, oneshot router,
   # RLS-fenced assertion reads via with_company_scope. Covers entry overlap → 409, the period
@@ -55,6 +56,7 @@ user_owned:
   # regen, not as data-bearing ALTERs.
   - "migrations/20260829110000_analytic_row_convergence.up.sql"
   - "migrations/20260829110000_analytic_row_convergence.down.sql"
+  - "migrations/20261017100000_invoiced_row_guard_covers_link_and_delete.*"
   # Hand-authored migrations (the tenancy strip — the ordering guard is hand-authored
   # logic, not schema-derived emission).
   - "migrations/20260911062500_strip_tenancy.up.sql"

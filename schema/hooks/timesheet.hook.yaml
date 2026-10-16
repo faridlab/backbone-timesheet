@@ -41,7 +41,8 @@ rules:
     assert: "a row whose invoice_id is set may not change any pricing/anchoring column; clearing invoice_id (the unbill/reversal path) stays legal, and soft-deleting an invoiced row refuses"
     error_code: invoiced_row_locked
     enforcement: both
-    justification: "PARTLY: the timesheets_invoiced_row_guard trigger and the service checks refuse a repricing update, but soft delete is left to an unlocked service read that races the billing stamp, and a single raw update that clears the invoice link while repricing, or moves the link to another invoice, passes the trigger."
+    enforced_by: "migrations/20261017100000_invoiced_row_guard_covers_link_and_delete.up.sql::timesheets_invoiced_row_guard, src/infrastructure/persistence/timesheet_write_repository.rs::entry_snapshot"
+    justification: "The timesheets_invoiced_row_guard triggers run on every update and delete of a row that carries an invoice link: clearing the link alone is the reversal path, and repricing, re-anchoring, moving to another invoice, soft-deleting or deleting refuses with timesheet_invoiced_row_locked, whoever writes (tests/invoiced_row_guard.rs). The service reads the row FOR UPDATE before it writes, so a billing stamp waits for the edit, and its soft delete carries invoice_id IS NULL."
 
 events: {}
   # Emission is the write service's responsibility (user-owned
