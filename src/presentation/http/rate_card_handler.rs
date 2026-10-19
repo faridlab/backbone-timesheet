@@ -82,6 +82,13 @@ impl axum::response::IntoResponse for RateCardError {
 // Route Configuration
 // =============================================================================
 
+/// The permissions this entity's generic routes require: `rate_card:<action>` for `read`, `create`,
+/// `update`, `delete`, `restore` and `purge`, with any rename the schema's `requires:` declares.
+pub fn rate_card_permissions() -> backbone_core::http::CrudPermissions {
+    backbone_core::http::CrudPermissions::new("rate_card")
+        .in_module("timesheet")
+}
+
 /// Create Axum router with all 16 Backbone endpoints for RateCard.
 ///
 /// # Routes
@@ -111,21 +118,23 @@ impl axum::response::IntoResponse for RateCardError {
 /// let router = create_rate_card_routes(service);
 /// ```
 pub fn create_rate_card_routes(service: Arc<RateCardService>) -> Router {
-    BackboneCrudHandler::<RateCardService, RateCard, CreateRateCardDto, UpdateRateCardDto, RateCardResponseDto>::routes(
+    BackboneCrudHandler::<RateCardService, RateCard, CreateRateCardDto, UpdateRateCardDto, RateCardResponseDto>::routes_guarded(
         service,
         "/rate_cards",
+        rate_card_permissions(),
     )
 }
 
 /// Create Axum router with only the read (GET) endpoints for RateCard.
 ///
-/// Safe for public, unauthenticated exposure (e.g., reference data).
+/// Each route requires the entity's `read` permission, so it needs an authenticated caller.
 /// Mutations must be served separately via `create_rate_card_write_routes`,
 /// typically wrapped in an auth middleware layer.
 pub fn create_rate_card_read_routes(service: Arc<RateCardService>) -> Router {
-    BackboneCrudHandler::<RateCardService, RateCard, CreateRateCardDto, UpdateRateCardDto, RateCardResponseDto>::read_routes(
+    BackboneCrudHandler::<RateCardService, RateCard, CreateRateCardDto, UpdateRateCardDto, RateCardResponseDto>::read_routes_guarded(
         service,
         "/rate_cards",
+        rate_card_permissions(),
     )
 }
 
@@ -141,9 +150,10 @@ pub fn create_rate_card_read_routes(service: Arc<RateCardService>) -> Router {
 /// service (e.g. a command router over its domain engine), serve THAT instead
 /// for any mutation that must respect domain rules.
 pub fn create_rate_card_write_routes(service: Arc<RateCardService>) -> Router {
-    BackboneCrudHandler::<RateCardService, RateCard, CreateRateCardDto, UpdateRateCardDto, RateCardResponseDto>::write_routes(
+    BackboneCrudHandler::<RateCardService, RateCard, CreateRateCardDto, UpdateRateCardDto, RateCardResponseDto>::write_routes_guarded(
         service,
         "/rate_cards",
+        rate_card_permissions(),
     )
 }
 

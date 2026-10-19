@@ -50,11 +50,12 @@ pub struct CreateTimesheetDto {
     pub time_start: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "time_end")]
     pub time_end: Option<DateTime<Utc>>,
-    #[serde(alias = "entry_type")]
+    #[serde(default = "default_create_timesheet_entry_type", alias = "entry_type")]
     pub entry_type: TimesheetType,
-    #[serde(alias = "unit_amount")]
+    #[serde(default, alias = "unit_amount")]
     pub unit_amount: Decimal,
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
+    #[serde(default = "default_create_timesheet_currency")]
     pub currency: String,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "activity_type_id")]
     pub activity_type_id: Option<Uuid>,
@@ -63,18 +64,34 @@ pub struct CreateTimesheetDto {
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "costing_rate")]
     pub costing_rate: Option<Decimal>,
     #[cfg_attr(feature = "openapi", schema(example = true))]
-    #[serde(alias = "is_billable")]
+    #[serde(default = "default_create_timesheet_is_billable", alias = "is_billable")]
     pub is_billable: bool,
-    #[serde(alias = "row_status")]
+    #[serde(default = "default_create_timesheet_row_status", alias = "row_status")]
     pub row_status: TimesheetRowStatus,
-    #[serde(alias = "billable_amount")]
+    #[serde(default, alias = "billable_amount")]
     pub billable_amount: Decimal,
-    #[serde(alias = "costing_amount")]
+    #[serde(default, alias = "costing_amount")]
     pub costing_amount: Decimal,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "invoice_id")]
     pub invoice_id: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "source_timeoff_request_id")]
     pub source_timeoff_request_id: Option<Uuid>,
+}
+
+fn default_create_timesheet_entry_type() -> TimesheetType {
+    TimesheetType::Work
+}
+
+fn default_create_timesheet_currency() -> String {
+    "IDR".to_string()
+}
+
+fn default_create_timesheet_is_billable() -> bool {
+    true
+}
+
+fn default_create_timesheet_row_status() -> TimesheetRowStatus {
+    TimesheetRowStatus::Draft
 }
 
 // =============================================================================
@@ -150,10 +167,10 @@ pub struct PatchTimesheetDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "employee_id")]
     pub employee_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "project_id")]
-    pub project_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "task_id")]
-    pub task_id: Option<Uuid>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "project_id")]
+    pub project_id: Option<Option<Uuid>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "task_id")]
+    pub task_id: Option<Option<Uuid>>,
     #[cfg_attr(feature = "openapi", schema(example = 42))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub year: Option<i32>,
@@ -163,12 +180,12 @@ pub struct PatchTimesheetDto {
     #[cfg_attr(feature = "openapi", schema(example = "2024-01-01"))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub date: Option<NaiveDate>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub remark: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "time_start")]
-    pub time_start: Option<DateTime<Utc>>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "time_end")]
-    pub time_end: Option<DateTime<Utc>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option")]
+    pub remark: Option<Option<String>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "time_start")]
+    pub time_start: Option<Option<DateTime<Utc>>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "time_end")]
+    pub time_end: Option<Option<DateTime<Utc>>>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "entry_type")]
     pub entry_type: Option<TimesheetType>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "unit_amount")]
@@ -176,12 +193,12 @@ pub struct PatchTimesheetDto {
     #[cfg_attr(feature = "openapi", schema(example = "example"))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub currency: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "activity_type_id")]
-    pub activity_type_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "billing_rate")]
-    pub billing_rate: Option<Decimal>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "costing_rate")]
-    pub costing_rate: Option<Decimal>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "activity_type_id")]
+    pub activity_type_id: Option<Option<Uuid>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "billing_rate")]
+    pub billing_rate: Option<Option<Decimal>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "costing_rate")]
+    pub costing_rate: Option<Option<Decimal>>,
     #[cfg_attr(feature = "openapi", schema(example = true))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "is_billable")]
     pub is_billable: Option<bool>,
@@ -191,10 +208,10 @@ pub struct PatchTimesheetDto {
     pub billable_amount: Option<Decimal>,
     #[serde(skip_serializing_if = "Option::is_none", alias = "costing_amount")]
     pub costing_amount: Option<Decimal>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "invoice_id")]
-    pub invoice_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "source_timeoff_request_id")]
-    pub source_timeoff_request_id: Option<Uuid>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "invoice_id")]
+    pub invoice_id: Option<Option<Uuid>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "source_timeoff_request_id")]
+    pub source_timeoff_request_id: Option<Option<Uuid>>,
 }
 
 impl PatchTimesheetDto {
@@ -447,12 +464,4 @@ impl backbone_core::ApplyUpdateDto<UpdateTimesheetDto> for Timesheet {
         Ok(self)
     }
 }
-
-// =============================================================================
-// Custom DTOs
-// =============================================================================
-
-// Add custom DTOs specific to Timesheet here.
-// This section will be preserved during regeneration.
-// >>> END CUSTOM DTOs
 

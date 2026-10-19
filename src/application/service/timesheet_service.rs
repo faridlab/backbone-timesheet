@@ -70,6 +70,10 @@ impl backbone_core::write_guard::WriteGuard<Timesheet> for TimesheetRowRules {
         if (create || (update && r::changed(old.as_ref(), row, &["unit_amount"]))) && !r::holds(&r::ge(r::field(row, "unit_amount"), r::Val::Num(0.0_f64))) {
             refuse.push(Violation::new("unit_amount", "non_negative", "unit_amount must not be negative"));
         }
+        // `currency_required` (@required on Timesheet.currency)
+        if (create || (update && r::changed(old.as_ref(), row, &["currency"]))) && !r::holds(&r::and(r::is_not_null(r::field(row, "currency")), r::not(r::is_empty(r::trim(r::field(row, "currency")))))) {
+            refuse.push(Violation::new("currency", "required", "currency is required"));
+        }
         // `currency_length` (@length(3) on Timesheet.currency)
         if (create || (update && r::changed(old.as_ref(), row, &["currency"]))) && !r::holds(&r::eq(r::length(r::field(row, "currency")), r::Val::Num(3.0_f64))) {
             refuse.push(Violation::new("currency", "length", "currency must be exactly 3 characters").with_param("length", 3_i64));

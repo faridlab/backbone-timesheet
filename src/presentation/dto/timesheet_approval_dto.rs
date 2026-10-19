@@ -45,6 +45,7 @@ pub struct CreateTimesheetApprovalDto {
     pub billable_time: Option<Decimal>,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "billable_cost")]
     pub billable_cost: Option<Decimal>,
+    #[serde(default = "default_create_timesheet_approval_status")]
     pub status: TimesheetApprovalStatus,
     #[serde(default, skip_serializing_if = "Option::is_none", alias = "approval_request_id")]
     pub approval_request_id: Option<Uuid>,
@@ -52,6 +53,10 @@ pub struct CreateTimesheetApprovalDto {
     pub submitted_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data: Option<serde_json::Value>,
+}
+
+fn default_create_timesheet_approval_status() -> TimesheetApprovalStatus {
+    TimesheetApprovalStatus::Pending
 }
 
 // =============================================================================
@@ -105,28 +110,28 @@ pub struct PatchTimesheetApprovalDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "employee_id")]
     pub employee_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "approver_id")]
-    pub approver_id: Option<Uuid>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "approver_id")]
+    pub approver_id: Option<Option<Uuid>>,
     #[cfg_attr(feature = "openapi", schema(example = 42))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub year: Option<i32>,
     #[cfg_attr(feature = "openapi", schema(example = 42))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub month: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub remark: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "billable_time")]
-    pub billable_time: Option<Decimal>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "billable_cost")]
-    pub billable_cost: Option<Decimal>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option")]
+    pub remark: Option<Option<String>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "billable_time")]
+    pub billable_time: Option<Option<Decimal>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "billable_cost")]
+    pub billable_cost: Option<Option<Decimal>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<TimesheetApprovalStatus>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "approval_request_id")]
-    pub approval_request_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "submitted_at")]
-    pub submitted_at: Option<DateTime<Utc>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<serde_json::Value>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "approval_request_id")]
+    pub approval_request_id: Option<Option<Uuid>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "submitted_at")]
+    pub submitted_at: Option<Option<DateTime<Utc>>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option")]
+    pub data: Option<Option<serde_json::Value>>,
 }
 
 impl PatchTimesheetApprovalDto {
@@ -326,12 +331,4 @@ impl backbone_core::ApplyUpdateDto<UpdateTimesheetApprovalDto> for TimesheetAppr
         Ok(self)
     }
 }
-
-// =============================================================================
-// Custom DTOs
-// =============================================================================
-
-// Add custom DTOs specific to TimesheetApproval here.
-// This section will be preserved during regeneration.
-// >>> END CUSTOM DTOs
 

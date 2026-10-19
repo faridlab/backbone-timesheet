@@ -84,12 +84,12 @@ pub struct PatchRateCardDto {
     #[cfg_attr(feature = "openapi", schema(example = "550e8400-e29b-41d4-a716-446655440000"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "employee_id")]
     pub employee_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "activity_type_id")]
-    pub activity_type_id: Option<Uuid>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "billing_rate")]
-    pub billing_rate: Option<Decimal>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "costing_rate")]
-    pub costing_rate: Option<Decimal>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "activity_type_id")]
+    pub activity_type_id: Option<Option<Uuid>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "billing_rate")]
+    pub billing_rate: Option<Option<Decimal>>,
+    #[serde(default, deserialize_with = "crate::presentation::dto::double_option", alias = "costing_rate")]
+    pub costing_rate: Option<Option<Decimal>>,
     #[cfg_attr(feature = "openapi", schema(example = "2024-01-01"))]
     #[serde(skip_serializing_if = "Option::is_none", alias = "valid_from")]
     pub valid_from: Option<NaiveDate>,
@@ -261,12 +261,4 @@ impl backbone_core::ApplyUpdateDto<UpdateRateCardDto> for RateCard {
         Ok(self)
     }
 }
-
-// =============================================================================
-// Custom DTOs
-// =============================================================================
-
-// Add custom DTOs specific to RateCard here.
-// This section will be preserved during regeneration.
-// >>> END CUSTOM DTOs
 

@@ -1167,7 +1167,6 @@ components:
       required:
         - employee_id
         - valid_from
-        - metadata
       properties:
         employee_id:
           type: string
@@ -1185,15 +1184,12 @@ components:
         valid_from:
           type: string
           format: date
-        metadata:
-          type: object
 
     UpdateRateCardRequest:
       type: object
       required:
         - employee_id
         - valid_from
-        - metadata
       properties:
         employee_id:
           type: string
@@ -1211,8 +1207,6 @@ components:
         valid_from:
           type: string
           format: date
-        metadata:
-          type: object
 
     PatchRateCardRequest:
       type: object
@@ -1233,8 +1227,6 @@ components:
         valid_from:
           type: string
           format: date
-        metadata:
-          type: object
 
     RateCardList:
       type: object
@@ -1352,14 +1344,6 @@ components:
         - year
         - month
         - date
-        - entry_type
-        - unit_amount
-        - currency
-        - is_billable
-        - row_status
-        - billable_amount
-        - costing_amount
-        - metadata
       properties:
         employee_id:
           type: string
@@ -1424,8 +1408,6 @@ components:
           nullable: true
           type: string
           format: uuid
-        metadata:
-          type: object
 
     UpdateTimesheetRequest:
       type: object
@@ -1441,7 +1423,6 @@ components:
         - row_status
         - billable_amount
         - costing_amount
-        - metadata
       properties:
         employee_id:
           type: string
@@ -1506,8 +1487,6 @@ components:
           nullable: true
           type: string
           format: uuid
-        metadata:
-          type: object
 
     PatchTimesheetRequest:
       type: object
@@ -1575,8 +1554,6 @@ components:
           nullable: true
           type: string
           format: uuid
-        metadata:
-          type: object
 
     TimesheetList:
       type: object
@@ -1658,8 +1635,6 @@ components:
         - employee_id
         - year
         - month
-        - status
-        - metadata
       properties:
         employee_id:
           type: string
@@ -1695,8 +1670,6 @@ components:
           format: date-time
         data:
           nullable: true
-          type: object
-        metadata:
           type: object
 
     UpdateTimesheetApprovalRequest:
@@ -1706,7 +1679,6 @@ components:
         - year
         - month
         - status
-        - metadata
       properties:
         employee_id:
           type: string
@@ -1742,8 +1714,6 @@ components:
           format: date-time
         data:
           nullable: true
-          type: object
-        metadata:
           type: object
 
     PatchTimesheetApprovalRequest:
@@ -1783,8 +1753,6 @@ components:
           format: date-time
         data:
           nullable: true
-          type: object
-        metadata:
           type: object
 
     TimesheetApprovalList:

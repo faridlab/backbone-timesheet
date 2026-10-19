@@ -11,9 +11,9 @@ pub mod timesheet_approval_handler;
 
 
 // Re-exports
-pub use rate_card_handler::{create_rate_card_routes, create_rate_card_read_routes, create_rate_card_write_routes};
-pub use timesheet_handler::{create_timesheet_routes, create_timesheet_read_routes, create_timesheet_write_routes};
-pub use timesheet_approval_handler::{create_timesheet_approval_routes, create_timesheet_approval_read_routes, create_timesheet_approval_write_routes};
+pub use rate_card_handler::{create_rate_card_routes, create_rate_card_read_routes, create_rate_card_write_routes, rate_card_permissions};
+pub use timesheet_handler::{create_timesheet_routes, create_timesheet_read_routes, create_timesheet_write_routes, timesheet_permissions};
+pub use timesheet_approval_handler::{create_timesheet_approval_routes, create_timesheet_approval_read_routes, create_timesheet_approval_write_routes, timesheet_approval_permissions};
 
 // This directory's extension (hand-written; ADR-0031).
 include!("mod.ext.rs");
