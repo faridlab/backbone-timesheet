@@ -1,6 +1,6 @@
 [package]
 name = "backbone-timesheet"
-version = "0.11.1"
+version = "0.11.2"
 edition = "2021"
 description = "Timesheets as analytic time lines: rate cards and rate snapshots, submission and approval, with a guard on invoiced rows"
 license = "MIT OR Apache-2.0"
@@ -20,8 +20,8 @@ path = "src/lib.rs"
 # or `rev = "<commit-sha>"`. Cargo dedupes the git fetch — the repo is only
 # cloned once even though four crates reference it.
 # -----------------------------------------------------------------------------
-backbone-core = { version = "3.7.0", features = ["postgres"] }
-backbone-orm = { version = "3.0.0" }
+backbone-core = { version = " 3.18.0", features = ["postgres"] }
+backbone-orm = { version = " 3.18.0" }
 backbone-auth = { version = "3.0.0", features = ["axum"] }
 backbone-messaging = { version = "3.0.0" }
 
